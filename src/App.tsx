@@ -32,6 +32,7 @@ function App() {
   const [studentName, setStudentName] = useState('');
   const [sessionKey, setSessionKey] = useState('');
   const [violations, setViolations] = useState(0);
+  const [examPhase, setExamPhase] = useState<'setup' | 'disclaimer' | 'active'>('setup');
   const [examStartTime, setExamStartTime] = useState<string | null>(null);
   const [resultData, setResultData] = useState<{
     score: number;
@@ -48,6 +49,8 @@ function App() {
     setSessionKey(generateSessionKey(name, data.examCode));
     setState('exam');
     setViolations(0);
+    const needsRecording = !!(data.recording?.camera || data.recording?.screen);
+    setExamPhase(needsRecording ? 'setup' : 'disclaimer');
     setExamStartTime(new Date().toISOString());
   };
 
@@ -120,12 +123,13 @@ function App() {
     setStudentName('');
     setSessionKey('');
     setViolations(0);
+    setExamPhase('setup');
     setResultData(null);
     setExamStartTime(null);
   };
 
   return (
-    <FullscreenManager examActive={state === 'exam'} onViolation={handleViolation}>
+    <FullscreenManager examActive={state === 'exam' && examPhase === 'active'} onViolation={handleViolation}>
       {state === 'login' && <ExamLogin onStart={handleExamStart} />}
 
       {state === 'exam' && examData && (
@@ -135,6 +139,7 @@ function App() {
           sessionKey={sessionKey}
           onSubmit={handleExamSubmit}
           onSuppressViolations={handleSuppressViolations}
+          onPhaseActive={() => setExamPhase('active')}
           violations={violations}
         />
       )}
