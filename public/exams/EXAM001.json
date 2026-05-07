@@ -25,7 +25,8 @@
     "showGrade": true,
     "showPerformanceSummary": true,
     "showPdfDownload": true,
-    "showRetakeButton": true
+    "showRetakeButton": true,
+    "pdfMode": "summary"
   },
   "sections": [
     {

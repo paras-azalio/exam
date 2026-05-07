@@ -9,7 +9,7 @@ interface ExamInterfaceProps {
   examData: ExamData;
   studentName: string;
   sessionKey: string;
-  onSubmit: (answers: Answer[]) => void;
+  onSubmit: (answers: Answer[], questionOrderMap: Record<string, number>) => void;
   onSuppressViolations: (ms: number) => void;
   violations: number;
 }
@@ -35,15 +35,21 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   const recording = examData.recording ?? {};
   const needsRecording = !!(recording.camera || recording.screen);
 
-  // Shuffle questions once on mount per section config
-  const [activeSections] = useState<Section[]>(() =>
-    examData.sections.map((section) => ({
+  // Shuffle questions once on mount per section config, then assign sequential
+  // display numbers that match the rendered UI order (not the original JSON order).
+  const [activeSections] = useState<Section[]>(() => {
+    const shuffled = examData.sections.map((section) => ({
       ...section,
       questions: section.shuffleQuestions
         ? shuffleArray(section.questions)
         : section.questions,
-    }))
-  );
+    }));
+    let counter = 1;
+    return shuffled.map((section) => ({
+      ...section,
+      questions: section.questions.map((q) => ({ ...q, number: counter++ })),
+    }));
+  });
 
   const allQuestions = activeSections.flatMap((section) =>
     section.questions.map((q) => ({
@@ -52,6 +58,11 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
       sectionName: section.sectionName,
     }))
   );
+
+  // Stable map from questionId → render-order number; used when scoring so that
+  // result details reflect the same numbers the student saw during the exam.
+  const questionOrderMapRef = useRef<Record<string, number>>({});
+  questionOrderMapRef.current = Object.fromEntries(allQuestions.map((q) => [q.id, q.number]));
 
   // exam phases: setup (recording grant) → active (exam running)
   const [examPhase, setExamPhase] = useState<'setup' | 'active'>(
@@ -110,7 +121,7 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   // Timer — only runs when exam is active
   const doAutoSubmit = useCallback(() => {
     stopAllRecording();
-    onSubmit(answersRef.current);
+    onSubmit(answersRef.current, questionOrderMapRef.current);
   }, [stopAllRecording, onSubmit]);
 
   const doAutoSubmitRef = useRef(doAutoSubmit);
@@ -192,7 +203,7 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   const handleSubmit = () => {
     if (window.confirm('Are you sure you want to submit your exam?')) {
       stopAllRecording();
-      onSubmit(answersRef.current);
+      onSubmit(answersRef.current, questionOrderMapRef.current);
     }
   };
 

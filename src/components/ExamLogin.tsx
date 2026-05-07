@@ -27,11 +27,21 @@ export const ExamLogin: React.FC<ExamLoginProps> = ({ onStart }) => {
     }
 
     setLoading(true);
+
+    // Request fullscreen while still in the user-gesture context (before async fetch).
+    // Without this, the useEffect in FullscreenManager fires too late and the browser
+    // rejects the requestFullscreen call (EXAM002 has no recording setup that would
+    // otherwise re-trigger the prompt via the violation modal).
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
+
     const data = await loadExamData(examCode.toUpperCase());
     setLoading(false);
 
     if (!data) {
       setError('Invalid exam code. Please check and try again.');
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
       return;
     }
 

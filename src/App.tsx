@@ -56,9 +56,9 @@ function App() {
     suppressUntil.current = Date.now() + ms;
   };
 
-  const handleExamSubmit = (answers: Answer[]) => {
+  const handleExamSubmit = (answers: Answer[], questionOrderMap: Record<string, number> = {}) => {
     if (!examData) return;
-    const result = calculateScore(examData, answers);
+    const result = calculateScore(examData, answers, questionOrderMap);
     setResultData(result);
     setState('result');
     if (document.fullscreenElement) {
