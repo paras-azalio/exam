@@ -8,10 +8,22 @@ import { calculateScore } from './utils/examUtils';
 
 type AppState = 'login' | 'exam' | 'result';
 
+const BACKEND_URL = 'http://localhost:8080';
+
 const generateSessionKey = (name: string, examCode: string): string => {
   const ts = Date.now();
   const safeName = name.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_]/g, '');
   return `${safeName}_${examCode}_${ts}`;
+};
+
+/** Resolve a grade string from grading rules, returns '' if no grading config. */
+const resolveGrade = (examData: ExamData, score: number, totalMarks: number): string => {
+  if (!examData.grading || examData.grading.length === 0) return '';
+  const pct = totalMarks > 0 ? (score / totalMarks) * 100 : 0;
+  const match = [...examData.grading]
+    .sort((a, b) => b.minPercentage - a.minPercentage)
+    .find((g) => pct >= g.minPercentage);
+  return match ? match.grade : 'F';
 };
 
 function App() {
@@ -20,6 +32,7 @@ function App() {
   const [studentName, setStudentName] = useState('');
   const [sessionKey, setSessionKey] = useState('');
   const [violations, setViolations] = useState(0);
+  const [examStartTime, setExamStartTime] = useState<string | null>(null);
   const [resultData, setResultData] = useState<{
     score: number;
     totalMarks: number;
@@ -35,6 +48,7 @@ function App() {
     setSessionKey(generateSessionKey(name, data.examCode));
     setState('exam');
     setViolations(0);
+    setExamStartTime(new Date().toISOString());
   };
 
   const handleViolation = () => {
@@ -64,6 +78,40 @@ function App() {
     if (document.fullscreenElement) {
       document.exitFullscreen();
     }
+    // Persist result to backend (fire-and-forget — never blocks the UI)
+    persistResult(examData, result.score, result.totalMarks, result.details);
+  };
+
+  /**
+   * Sends the exam result to the backend for DB persistence and HTML report storage.
+   * The HTML report is saved at:
+   *   {storage.base-path}/{sessionKey}/{sessionKey}.html
+   * (sessionKey follows the name_examcode_time pattern, camera/ and screen/ are untouched)
+   */
+  const persistResult = (
+    data: ExamData,
+    score: number,
+    totalMarks: number,
+    details: any[]
+  ) => {
+    const grade = resolveGrade(data, score, totalMarks);
+    const payload = {
+      sessionKey,
+      studentName,
+      examCode: data.examCode,
+      examTitle: data.examTitle,
+      score,
+      totalMarks,
+      grade: grade || null,
+      details,
+      startedAt: examStartTime,
+    };
+
+    fetch(`${BACKEND_URL}/api/result/save`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).catch((err) => console.error('[exam] Failed to persist result to backend:', err));
   };
 
   const handleRestart = () => {
@@ -73,6 +121,7 @@ function App() {
     setSessionKey('');
     setViolations(0);
     setResultData(null);
+    setExamStartTime(null);
   };
 
   return (

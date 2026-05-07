@@ -24,9 +24,9 @@
     "showTotalMarks": true,
     "showGrade": true,
     "showPerformanceSummary": true,
-    "showPdfDownload": true,
+    "showPdfDownload": false,
     "showRetakeButton": true,
-    "pdfMode": "summary"
+    "pdfMode": "detailed"
   },
   "sections": [
     {

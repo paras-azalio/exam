@@ -78,6 +78,10 @@ export const calculateScore = (
     });
   });
 
+  // Sort by the display number so the order always matches what the student saw in the UI,
+  // regardless of the original JSON section/question order.
+  details.sort((a, b) => a.questionNumber - b.questionNumber);
+
   return { score: Math.max(0, score), totalMarks, details };
 };
 
