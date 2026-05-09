@@ -1,8 +1,11 @@
 import { ExamData, Answer, Question } from '../types/exam';
+import { BACKEND_URL } from '../config';
+
+const API_BASE = BACKEND_URL;
 
 export const loadExamData = async (examCode: string): Promise<ExamData | null> => {
   try {
-    const response = await fetch(`/exams/${examCode}.json`);
+    const response = await fetch(`${API_BASE}/api/exam/${examCode}`);
     if (!response.ok) return null;
     return await response.json();
   } catch (error) {

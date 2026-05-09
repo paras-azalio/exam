@@ -5,10 +5,9 @@ import { ResultScreen } from './components/ResultScreen';
 import { FullscreenManager } from './components/FullscreenManager';
 import { ExamData, Answer } from './types/exam';
 import { calculateScore } from './utils/examUtils';
+import { BACKEND_URL } from './config';
 
 type AppState = 'login' | 'exam' | 'result';
-
-const BACKEND_URL = 'http://localhost:8080';
 
 const generateSessionKey = (name: string, examCode: string): string => {
   const ts = Date.now();

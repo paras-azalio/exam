@@ -1,6 +1,7 @@
 import { useRef, useCallback, useState } from 'react';
+import { BACKEND_URL } from '../config';
 
-const API_BASE = 'http://localhost:8080';
+const API_BASE = BACKEND_URL;
 
 /**
  * How long each recording segment lasts before the recorder is cycled.
