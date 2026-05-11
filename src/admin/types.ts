@@ -32,6 +32,7 @@ export interface GradeForm {
 export interface ExamFormState {
   examCode: string;
   examTitle: string;
+  jobDescription: string;
   durationMinutes: number;
   canNavigate: boolean;
   submissionType: string;
@@ -90,6 +91,7 @@ export const emptySection = (): SectionForm => ({
 export const defaultForm = (): ExamFormState => ({
   examCode: '',
   examTitle: '',
+  jobDescription: '',
   durationMinutes: 60,
   canNavigate: true,
   submissionType: 'complete',
@@ -114,6 +116,7 @@ export function formToJson(f: ExamFormState): object {
   return {
     examCode: f.examCode.toUpperCase(),
     examTitle: f.examTitle,
+    jobDescription: f.jobDescription,
     duration: f.durationMinutes * 60,
     canNavigate: f.canNavigate,
     submissionType: f.submissionType,
@@ -170,6 +173,7 @@ export function jsonToForm(raw: string): ExamFormState {
   return {
     examCode: j.examCode ?? '',
     examTitle: j.examTitle ?? '',
+    jobDescription: j.jobDescription ?? '',
     durationMinutes: Math.floor((j.duration ?? 3600) / 60),
     canNavigate: j.canNavigate ?? true,
     submissionType: j.submissionType ?? 'complete',

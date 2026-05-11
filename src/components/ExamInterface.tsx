@@ -2,16 +2,20 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ExamData, Answer, QuestionStatus, Section } from '../types/exam';
 import { QuestionDisplay } from './QuestionDisplay';
 import { QuestionNavigator } from './QuestionNavigator';
+import { JobDescriptionPage } from './JobDescriptionPage';
 import { formatTime } from '../utils/examUtils';
 import { useExamRecorder } from '../hooks/useExamRecorder';
 
 interface ExamInterfaceProps {
   examData: ExamData;
   studentName: string;
+  studentEmail?: string;
   sessionKey: string;
+  isJwtMode?: boolean;
   onSubmit: (answers: Answer[], questionOrderMap: Record<string, number>) => void;
   onSuppressViolations: (ms: number) => void;
   onPhaseActive: () => void;
+  onViolation?: () => void;
   violations: number;
 }
 
@@ -28,10 +32,13 @@ const shuffleArray = <T,>(arr: T[]): T[] => {
 export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   examData,
   studentName,
+  studentEmail = '',
   sessionKey,
+  isJwtMode = false,
   onSubmit,
   onSuppressViolations,
   onPhaseActive,
+  onViolation,
   violations,
 }) => {
   const recording = examData.recording ?? {};
@@ -66,10 +73,12 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   const questionOrderMapRef = useRef<Record<string, number>>({});
   questionOrderMapRef.current = Object.fromEntries(allQuestions.map((q) => [q.id, q.number]));
 
-  // exam phases: setup → disclaimer → active
-  const [examPhase, setExamPhase] = useState<'setup' | 'disclaimer' | 'active'>(
-    needsRecording ? 'setup' : 'disclaimer'
-  );
+  // exam phases: jd (jwt only) → setup → disclaimer → active
+  const initialPhase = (): 'jd' | 'setup' | 'disclaimer' | 'active' => {
+    if (isJwtMode && examData.jobDescription?.trim()) return 'jd';
+    return needsRecording ? 'setup' : 'disclaimer';
+  };
+  const [examPhase, setExamPhase] = useState<'jd' | 'setup' | 'disclaimer' | 'active'>(initialPhase);
   const [cameraReady, setCameraReady] = useState(!recording.camera);
   const [screenReady, setScreenReady] = useState(!recording.screen);
   const [disclaimerAgreed, setDisclaimerAgreed] = useState(false);
@@ -120,6 +129,18 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   useEffect(() => {
     return () => stopAllRecording();
   }, []);
+
+  // When screen share is stopped by the user (browser native UI):
+  // 1. Reset screenReady so the setup phase shows the grant button again.
+  // 2. Count it as a violation if the exam is already active.
+  useEffect(() => {
+    if (screenStatus === 'stopped' && recording.screen) {
+      setScreenReady(false);
+      if (examPhase === 'active') {
+        onViolation?.();
+      }
+    }
+  }, [screenStatus]);
 
   // Timer — only runs when exam is active
   const doAutoSubmit = useCallback(() => {
@@ -218,6 +239,18 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   };
 
   const currentAnswer = answers.find((a) => a.questionId === currentQuestion?.id);
+
+  // ── JD Phase UI (JWT invite links only) ────────────────────────────────────
+  if (examPhase === 'jd') {
+    return (
+      <JobDescriptionPage
+        examData={examData}
+        studentName={studentName}
+        studentEmail={studentEmail}
+        onNext={() => setExamPhase(needsRecording ? 'setup' : 'disclaimer')}
+      />
+    );
+  }
 
   // ── Setup Phase UI ──────────────────────────────────────────────────────────
   if (examPhase === 'setup') {
@@ -329,6 +362,46 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
               Complete all recording steps before starting.
             </p>
           )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Screen-share-stopped blocker (disclaimer + active phases) ──────────────
+  // Shown as a full-screen overlay whenever screen recording is required but stopped.
+  // Pauses the exam visually and forces the user to re-share before continuing.
+  const screenStopped = recording.screen && screenStatus === 'stopped'
+    && (examPhase === 'disclaimer' || examPhase === 'active');
+
+  if (screenStopped) {
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-[9999] p-4">
+        <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full text-center">
+          <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg className="w-8 h-8 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+            </svg>
+          </div>
+          <h2 className="text-xl font-bold text-gray-800 mb-2">
+            {examPhase === 'active' ? 'Exam Paused' : 'Screen Share Required'}
+          </h2>
+          <p className="text-gray-500 text-sm mb-6">
+            Screen sharing has stopped. You must share your entire screen to
+            {examPhase === 'active' ? ' resume the exam.' : ' continue.'}
+            {'\n'}Please click the button below and select your entire screen.
+          </p>
+          {screenError && (
+            <p className="text-red-500 text-xs mb-4 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              {screenError}
+            </p>
+          )}
+          <button
+            onClick={handleStartScreenShare}
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-xl transition text-sm"
+          >
+            Share Screen
+          </button>
         </div>
       </div>
     );
@@ -488,15 +561,6 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
                   <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
                   Screen REC
                 </div>
-              )}
-
-              {recording.screen && screenStatus === 'stopped' && (
-                <button
-                  onClick={handleStartScreenShare}
-                  className="text-xs px-2 py-1 bg-orange-500 text-white rounded hover:bg-orange-600"
-                >
-                  Re-share Screen
-                </button>
               )}
 
               {/* Timer */}

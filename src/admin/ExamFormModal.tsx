@@ -196,6 +196,19 @@ export default function ExamFormModal({ initial, active, onActiveChange, onSave,
               <Input label="Max Violations" type="number" min={1} value={f.maxViolations}
                 onChange={e => set({ maxViolations: Number(e.target.value) })} />
             </div>
+            <div className="mt-3">
+              <span className="text-xs font-medium text-gray-600 block mb-1">
+                Job Description
+                <span className="ml-1 text-gray-400 font-normal">(shown to candidate before exam starts via invite link)</span>
+              </span>
+              <textarea
+                value={f.jobDescription}
+                onChange={e => set({ jobDescription: e.target.value })}
+                rows={4}
+                placeholder="Describe the role, responsibilities, required skills…"
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-slate-400 resize-y"
+              />
+            </div>
             <div className="flex gap-4 flex-wrap mt-2">
               <Check label="Can Navigate (back/forward)" checked={f.canNavigate} onChange={v => set({ canNavigate: v })} />
               <Check label="Active (visible to students)" checked={activeState} onChange={v => { setActiveStateLocal(v); onActiveChange(v); }} />

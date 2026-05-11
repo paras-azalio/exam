@@ -62,6 +62,7 @@ export interface ExamData {
   grading?: GradeRule[];
   recording?: RecordingConfig;
   resultDisplay?: ResultDisplayConfig;
+  jobDescription?: string;
   sections: Section[];
 }
 

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { adminApi, ExamRow } from './adminApi';
 import ExamFormModal from './ExamFormModal';
+import GenerateLinkModal from './GenerateLinkModal';
 import { ExamFormState, defaultForm, jsonToForm } from './types';
 
 interface Props {
@@ -17,7 +18,8 @@ export default function AdminPanel({ creds, onLogout }: Props) {
   const [modal, setModal]     = useState<ModalState | null>(null);
   const [formActive, setFormActive] = useState(true);
   const [formInitial, setFormInitial] = useState<ExamFormState>(defaultForm);
-  const [deleteId, setDeleteId] = useState<number | null>(null);
+  const [deleteId, setDeleteId]     = useState<number | null>(null);
+  const [linkExam, setLinkExam]     = useState<ExamRow | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -153,6 +155,12 @@ export default function AdminPanel({ creds, onLogout }: Props) {
                     </td>
                     <td className="px-4 py-3 text-right space-x-2">
                       <button
+                        onClick={() => setLinkExam(exam)}
+                        className="px-3 py-1 text-xs bg-violet-50 text-violet-700 rounded hover:bg-violet-100 transition"
+                      >
+                        🔗 Link
+                      </button>
+                      <button
                         onClick={() => openEdit(exam)}
                         className="px-3 py-1 text-xs bg-blue-50 text-blue-700 rounded hover:bg-blue-100 transition"
                       >
@@ -182,6 +190,15 @@ export default function AdminPanel({ creds, onLogout }: Props) {
           title={modal.mode === 'create' ? 'New Exam' : `Edit — ${modal.exam.examCode}`}
           onSave={handleSave}
           onCancel={() => setModal(null)}
+        />
+      )}
+
+      {/* Generate Link Modal */}
+      {linkExam && (
+        <GenerateLinkModal
+          creds={creds}
+          exam={linkExam}
+          onClose={() => setLinkExam(null)}
         />
       )}
 

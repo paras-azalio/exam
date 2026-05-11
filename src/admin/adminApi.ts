@@ -68,4 +68,21 @@ export const adminApi = {
     if (!res.ok) throw new Error('Failed to toggle');
     return res.json();
   },
+
+  async generateLink(
+    creds: string,
+    id: number,
+    userName: string,
+    userEmail: string,
+    validForMinutes: number,
+  ): Promise<{ link: string; expiresAt: string }> {
+    const res = await fetch(`${API_BASE}/exams/${id}/generate-link`, {
+      method: 'POST',
+      headers: authHeader(creds),
+      body: JSON.stringify({ userName, userEmail, validForMinutes }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error ?? 'Failed to generate link');
+    return data;
+  },
 };
