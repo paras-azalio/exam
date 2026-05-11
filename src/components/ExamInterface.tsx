@@ -36,11 +36,9 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   sessionKey,
   isJwtMode = false,
   onSubmit,
-  onBeginExam,
   onViolation,
   onSuppressViolations,
   onPhaseActive,
-  onViolation,
   violations,
 }) => {
   const recording = examData.recording ?? {};
@@ -92,6 +90,17 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   const [showNavigator, setShowNavigator] = useState(false);
   const [screenStoppedWarning, setScreenStoppedWarning] = useState(false);
 
+  // Per-question timers: maps questionId → remaining seconds
+  // Undefined = not yet visited; null = no time limit
+  const [questionTimers, setQuestionTimers] = useState<Record<string, number>>({});
+  const questionTimerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Refs to latest values for use inside interval callbacks
+  const currentQuestionIndexRef = useRef(currentQuestionIndex);
+  currentQuestionIndexRef.current = currentQuestionIndex;
+  const allQuestionsRef = useRef(allQuestions);
+  allQuestionsRef.current = allQuestions;
+
   // Keep a ref to answers so the timer callback always reads the latest value
   const answersRef = useRef<Answer[]>([]);
   answersRef.current = answers;
@@ -130,7 +139,12 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
 
   // Stop recording on unmount regardless of how exam ends
   useEffect(() => {
-    return () => stopAllRecording();
+    return () => {
+      stopAllRecording();
+      if (questionTimerIntervalRef.current) {
+        clearInterval(questionTimerIntervalRef.current);
+      }
+    };
   }, []);
 
   // When screen share is stopped by the user (browser native UI):
@@ -145,7 +159,7 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
     }
   }, [screenStatus]);
 
-  // Timer — only runs when exam is active
+  // Main exam timer — only runs when exam is active
   const doAutoSubmit = useCallback(() => {
     stopAllRecording();
     onSubmit(answersRef.current, questionOrderMapRef.current);
@@ -169,13 +183,58 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
     return () => clearInterval(timer);
   }, [examPhase]);
 
-  // Register a violation when screen share is stopped during active exam
+  // Per-question timer — starts/pauses when navigating between questions
   useEffect(() => {
-    if (examPhase === 'active' && recording.screen && screenStatus === 'stopped') {
-      setScreenStoppedWarning(true);
-      onViolation();
+    if (examPhase !== 'active') return;
+
+    // Clear previous question's interval (pause it)
+    if (questionTimerIntervalRef.current) {
+      clearInterval(questionTimerIntervalRef.current);
+      questionTimerIntervalRef.current = null;
     }
-  }, [screenStatus]);
+
+    if (!currentQuestion?.timeLimit) return;
+
+    const qId      = currentQuestion.id;
+    const timeLimit = currentQuestion.timeLimit;
+
+    // Initialize remaining time if this question hasn't been visited yet
+    setQuestionTimers(prev => ({
+      ...prev,
+      [qId]: prev[qId] !== undefined ? prev[qId] : timeLimit,
+    }));
+
+    // Start the per-question countdown
+    questionTimerIntervalRef.current = setInterval(() => {
+      setQuestionTimers(prev => {
+        const remaining = prev[qId] !== undefined ? prev[qId] : timeLimit;
+        if (remaining <= 1) {
+          // Time's up for this question — clear interval and auto-advance
+          if (questionTimerIntervalRef.current) {
+            clearInterval(questionTimerIntervalRef.current);
+            questionTimerIntervalRef.current = null;
+          }
+          // Auto-advance in a microtask so we don't set state during state update
+          setTimeout(() => {
+            const idx       = currentQuestionIndexRef.current;
+            const questions = allQuestionsRef.current;
+            if (idx < questions.length - 1) {
+              setCurrentQuestionIndex(idx + 1);
+            }
+          }, 0);
+          return { ...prev, [qId]: 0 };
+        }
+        return { ...prev, [qId]: remaining - 1 };
+      });
+    }, 1000);
+
+    return () => {
+      if (questionTimerIntervalRef.current) {
+        clearInterval(questionTimerIntervalRef.current);
+        questionTimerIntervalRef.current = null;
+      }
+    };
+  }, [currentQuestionIndex, examPhase]);
 
   // --- Setup phase handlers ---
   const handleStartCamera = async () => {
@@ -251,6 +310,14 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   };
 
   const currentAnswer = answers.find((a) => a.questionId === currentQuestion?.id);
+
+  // Per-question remaining time for the current question (null if no limit)
+  const currentQuestionTimeRemaining =
+    currentQuestion?.timeLimit != null
+      ? (questionTimers[currentQuestion.id] !== undefined
+          ? questionTimers[currentQuestion.id]
+          : currentQuestion.timeLimit)
+      : null;
 
   // ── JD Phase UI (JWT invite links only) ────────────────────────────────────
   if (examPhase === 'jd') {
@@ -431,10 +498,6 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
         title: 'No Tab Switching',
         desc: 'Switching tabs or minimising the browser window counts as a violation.',
       },
-      // {
-      //   title: 'No Developer Tools',
-      //   desc: 'Opening browser developer tools (F12, Ctrl+Shift+I, etc.) is prohibited.',
-      // },
       {
         title: 'You can click on hide button next to stop screen share',
         desc: 'Dont click on stop screen sharing as you might get disqualified.',
@@ -555,6 +618,7 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
           </div>
         </div>
       )}
+
       {/* Watermark */}
       <div
         className="fixed inset-0 pointer-events-none z-0 flex items-center justify-center"
@@ -600,7 +664,7 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
                 </div>
               )}
 
-              {/* Timer */}
+              {/* Main exam timer */}
               <div className="text-right">
                 <div
                   className={`text-2xl font-bold ${
@@ -625,6 +689,29 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
         {/* Body */}
         <div className="max-w-7xl mx-auto p-4 grid grid-cols-1 lg:grid-cols-4 gap-4">
           <div className="lg:col-span-3 space-y-4">
+            {/* Per-question timer banner */}
+            {currentQuestionTimeRemaining !== null && (
+              <div
+                className={`flex items-center justify-between px-4 py-2.5 rounded-lg border text-sm font-medium ${
+                  currentQuestionTimeRemaining <= 10
+                    ? 'bg-red-50 border-red-300 text-red-700'
+                    : currentQuestionTimeRemaining <= 30
+                    ? 'bg-amber-50 border-amber-300 text-amber-700'
+                    : 'bg-blue-50 border-blue-200 text-blue-700'
+                }`}
+              >
+                <span>Question time limit</span>
+                <span className="font-bold tabular-nums text-base">
+                  {formatTime(currentQuestionTimeRemaining)}
+                  {currentQuestionTimeRemaining <= 10 && (
+                    <span className="ml-2 text-xs font-normal animate-pulse">
+                      Moving to next question…
+                    </span>
+                  )}
+                </span>
+              </div>
+            )}
+
             {currentQuestion && (
               <QuestionDisplay
                 question={currentQuestion}

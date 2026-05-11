@@ -11,6 +11,17 @@ export interface ExamRow {
   createdAt: string;
 }
 
+export interface ResultRow {
+  id: number;
+  studentName: string | null;
+  studentEmail: string | null;
+  score: number | null;
+  totalMarks: number | null;
+  grade: string | null;
+  startedAt: string | null;  // ISO datetime
+  createdAt: string;         // ISO datetime
+}
+
 const authHeader = (creds: string) => ({
   'Content-Type': 'application/json',
   Authorization: `Basic ${btoa(creds)}`,
@@ -66,6 +77,14 @@ export const adminApi = {
       headers: authHeader(creds),
     });
     if (!res.ok) throw new Error('Failed to toggle');
+    return res.json();
+  },
+
+  async getResults(creds: string, id: number): Promise<ResultRow[]> {
+    const res = await fetch(`${API_BASE}/exams/${id}/results`, {
+      headers: authHeader(creds),
+    });
+    if (!res.ok) throw new Error('Failed to fetch results');
     return res.json();
   },
 

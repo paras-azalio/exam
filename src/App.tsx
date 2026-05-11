@@ -192,25 +192,6 @@ function App() {
     // No token at all → falls through to CareersRedirectPage
   }, []);
 
-  // ── Normal login flow ───────────────────────────────────────────────────────
-  const handleExamStart = (data: ExamData, name: string) => {
-    setExamData(data);
-    setStudentName(name);
-    setStudentEmail('');
-    setJwtJti('');
-    setSessionKey(generateSessionKey(name, data.examCode));
-    setState('exam');
-    setExamLive(false);
-    setViolations(0);
-    const needsRecording = !!(data.recording?.camera || data.recording?.screen);
-    setExamPhase(needsRecording ? 'setup' : 'disclaimer');
-    setExamStartTime(new Date().toISOString());
-  };
-
-  const handleExamLive = () => {
-    setExamLive(true);
-  };
-
   const handleViolation = () => {
     if (Date.now() < suppressUntil.current) return;
     setViolations((v) => {
@@ -323,11 +304,9 @@ function App() {
           sessionKey={sessionKey}
           isJwtMode={isJwtMode}
           onSubmit={handleExamSubmit}
-          onBeginExam={handleExamLive}
           onViolation={handleViolation}
           onSuppressViolations={handleSuppressViolations}
           onPhaseActive={() => setExamPhase('active')}
-          onViolation={handleViolation}
           violations={violations}
         />
       )}
