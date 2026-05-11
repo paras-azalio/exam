@@ -47,10 +47,15 @@ function App() {
     setStudentName(name);
     setSessionKey(generateSessionKey(name, data.examCode));
     setState('exam');
+    setExamLive(false);
     setViolations(0);
     const needsRecording = !!(data.recording?.camera || data.recording?.screen);
     setExamPhase(needsRecording ? 'setup' : 'disclaimer');
     setExamStartTime(new Date().toISOString());
+  };
+
+  const handleExamLive = () => {
+    setExamLive(true);
   };
 
   const handleViolation = () => {
@@ -137,6 +142,8 @@ function App() {
           studentName={studentName}
           sessionKey={sessionKey}
           onSubmit={handleExamSubmit}
+          onBeginExam={handleExamLive}
+          onViolation={handleViolation}
           onSuppressViolations={handleSuppressViolations}
           onPhaseActive={() => setExamPhase('active')}
           violations={violations}
