@@ -200,10 +200,15 @@ function App() {
     setJwtJti('');
     setSessionKey(generateSessionKey(name, data.examCode));
     setState('exam');
+    setExamLive(false);
     setViolations(0);
     const needsRecording = !!(data.recording?.camera || data.recording?.screen);
     setExamPhase(needsRecording ? 'setup' : 'disclaimer');
     setExamStartTime(new Date().toISOString());
+  };
+
+  const handleExamLive = () => {
+    setExamLive(true);
   };
 
   const handleViolation = () => {
@@ -318,6 +323,8 @@ function App() {
           sessionKey={sessionKey}
           isJwtMode={isJwtMode}
           onSubmit={handleExamSubmit}
+          onBeginExam={handleExamLive}
+          onViolation={handleViolation}
           onSuppressViolations={handleSuppressViolations}
           onPhaseActive={() => setExamPhase('active')}
           onViolation={handleViolation}

@@ -36,6 +36,8 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   sessionKey,
   isJwtMode = false,
   onSubmit,
+  onBeginExam,
+  onViolation,
   onSuppressViolations,
   onPhaseActive,
   onViolation,
@@ -88,6 +90,7 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   const [questionStatuses, setQuestionStatuses] = useState<QuestionStatus[]>([]);
   const [timeRemaining, setTimeRemaining] = useState(examData.duration);
   const [showNavigator, setShowNavigator] = useState(false);
+  const [screenStoppedWarning, setScreenStoppedWarning] = useState(false);
 
   // Keep a ref to answers so the timer callback always reads the latest value
   const answersRef = useRef<Answer[]>([]);
@@ -166,6 +169,14 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
     return () => clearInterval(timer);
   }, [examPhase]);
 
+  // Register a violation when screen share is stopped during active exam
+  useEffect(() => {
+    if (examPhase === 'active' && recording.screen && screenStatus === 'stopped') {
+      setScreenStoppedWarning(true);
+      onViolation();
+    }
+  }, [screenStatus]);
+
   // --- Setup phase handlers ---
   const handleStartCamera = async () => {
     setCameraError(null);
@@ -175,6 +186,7 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
 
   const handleStartScreenShare = async () => {
     setScreenError(null);
+    setScreenStoppedWarning(false);
     // Suppress violations for 10s while screen picker is open (may briefly exit fullscreen)
     onSuppressViolations(10_000);
     const ok = await startScreenRecording();
@@ -518,6 +530,31 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   // ── Active Exam UI ──────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gray-50 relative">
+      {/* Screen share stopped — violation modal */}
+      {screenStoppedWarning && (
+        <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-8 max-w-md text-center">
+            <div className="mb-4">
+              <svg className="w-16 h-16 text-orange-500 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            <h3 className="text-xl font-bold text-gray-800 mb-2">Screen Sharing Stopped</h3>
+            <p className="text-gray-600 mb-1">
+              This has been recorded as a violation. You must resume screen sharing to continue.
+            </p>
+            <p className="text-sm text-red-600 mb-6 font-medium">
+              Violations: {violations} / {examData.maxViolations ?? 3}
+            </p>
+            <button
+              onClick={handleStartScreenShare}
+              className="w-full bg-orange-500 hover:bg-orange-600 text-white font-semibold py-3 px-6 rounded-lg transition"
+            >
+              Resume Screen Sharing
+            </button>
+          </div>
+        </div>
+      )}
       {/* Watermark */}
       <div
         className="fixed inset-0 pointer-events-none z-0 flex items-center justify-center"
