@@ -49,9 +49,15 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   const [activeSections] = useState<Section[]>(() => {
     const shuffled = examData.sections.map((section) => ({
       ...section,
-      questions: section.shuffleQuestions
+      questions: (section.shuffleQuestions
         ? shuffleArray(section.questions)
-        : section.questions,
+        : section.questions
+      ).map((q) =>
+        // Shuffle MCQ options once at exam start if the question has shuffleOptions enabled
+        q.shuffleOptions && q.options && q.options.length > 1
+          ? { ...q, options: shuffleArray(q.options) }
+          : q
+      ),
     }));
     let counter = 1;
     return shuffled.map((section) => ({

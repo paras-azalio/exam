@@ -9,6 +9,7 @@ export interface Question {
   number: number;
   type: 'mcq' | 'subjective';
   multipleChoice?: boolean;
+  shuffleOptions?: boolean;
   question: string;
   options?: Option[];
   correctAnswer: string[];

@@ -9,6 +9,7 @@ export interface QuestionForm {
   type: 'mcq' | 'subjective';
   question: string;
   multipleChoice: boolean;
+  shuffleOptions: boolean;
   options: OptionForm[];
   correctAnswer: string[];
   marks: number;
@@ -68,6 +69,7 @@ export const emptyQuestion = (): QuestionForm => ({
   type: 'mcq',
   question: '',
   multipleChoice: false,
+  shuffleOptions: false,
   options: [
     { id: 'a', text: '', isImage: false },
     { id: 'b', text: '', isImage: false },
@@ -153,6 +155,7 @@ export function formToJson(f: ExamFormState): object {
           return {
             ...base,
             multipleChoice: q.multipleChoice,
+            shuffleOptions: q.shuffleOptions,
             options: q.options
               .filter(o => o.text.trim() !== '')
               .map((o, i) => ({
@@ -200,6 +203,7 @@ export function jsonToForm(raw: string): ExamFormState {
         type: q.type ?? 'mcq',
         question: q.question ?? '',
         multipleChoice: q.multipleChoice ?? false,
+        shuffleOptions: q.shuffleOptions ?? false,
         options: (q.options ?? []).map((o: any) => ({
           id: o.id,
           text: o.text ?? '',

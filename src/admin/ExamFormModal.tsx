@@ -437,10 +437,14 @@ function QuestionCard({ q, index, expanded, onToggle, onUpdate, onRemove, onUpda
           {/* MCQ options */}
           {q.type === 'mcq' && (
             <div>
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
                 <span className="text-xs font-medium text-gray-600">Options & Correct Answer</span>
-                <Check label="Multiple correct" checked={q.multipleChoice}
-                  onChange={v => onUpdate({ multipleChoice: v, correctAnswer: [] })} />
+                <div className="flex items-center gap-4">
+                  <Check label="Shuffle options" checked={q.shuffleOptions}
+                    onChange={v => onUpdate({ shuffleOptions: v })} />
+                  <Check label="Multiple correct" checked={q.multipleChoice}
+                    onChange={v => onUpdate({ multipleChoice: v, correctAnswer: [] })} />
+                </div>
               </div>
               <div className="space-y-1.5">
                 {q.options.map((opt, i) => {
