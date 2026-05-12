@@ -90,14 +90,12 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   const [showNavigator, setShowNavigator] = useState(false);
   const [screenStoppedWarning, setScreenStoppedWarning] = useState(false);
 
-  // Per-question timers: maps questionId → remaining seconds
-  // Undefined = not yet visited; null = no time limit
-  const [questionTimers, setQuestionTimers] = useState<Record<string, number>>({});
-  const questionTimerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Per-question timer: ref persists remaining seconds across navigation,
+  // state drives the display (updated once per second for current question only).
+  const questionTimerSecondsRef = useRef<Record<string, number>>({});
+  const [currentQTimerDisplay, setCurrentQTimerDisplay] = useState<number | null>(null);
 
-  // Refs to latest values for use inside interval callbacks
-  const currentQuestionIndexRef = useRef(currentQuestionIndex);
-  currentQuestionIndexRef.current = currentQuestionIndex;
+  // Ref to latest allQuestions for use inside interval (avoids stale closure)
   const allQuestionsRef = useRef(allQuestions);
   allQuestionsRef.current = allQuestions;
 
@@ -139,12 +137,7 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
 
   // Stop recording on unmount regardless of how exam ends
   useEffect(() => {
-    return () => {
-      stopAllRecording();
-      if (questionTimerIntervalRef.current) {
-        clearInterval(questionTimerIntervalRef.current);
-      }
-    };
+    return () => { stopAllRecording(); };
   }, []);
 
   // When screen share is stopped by the user (browser native UI):
@@ -183,57 +176,46 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
     return () => clearInterval(timer);
   }, [examPhase]);
 
-  // Per-question timer — starts/pauses when navigating between questions
+  // Per-question timer — starts when entering a question, pauses when leaving,
+  // resumes from saved remaining time on return.
   useEffect(() => {
-    if (examPhase !== 'active') return;
-
-    // Clear previous question's interval (pause it)
-    if (questionTimerIntervalRef.current) {
-      clearInterval(questionTimerIntervalRef.current);
-      questionTimerIntervalRef.current = null;
+    // No timer when exam isn't active or question has no time limit
+    if (examPhase !== 'active' || !currentQuestion?.timeLimit) {
+      setCurrentQTimerDisplay(null);
+      return;
     }
 
-    if (!currentQuestion?.timeLimit) return;
-
-    const qId      = currentQuestion.id;
+    const qId       = currentQuestion.id;
     const timeLimit = currentQuestion.timeLimit;
 
-    // Initialize remaining time if this question hasn't been visited yet
-    setQuestionTimers(prev => ({
-      ...prev,
-      [qId]: prev[qId] !== undefined ? prev[qId] : timeLimit,
-    }));
+    // Initialize remaining seconds on first visit; otherwise resume from saved value
+    if (questionTimerSecondsRef.current[qId] === undefined) {
+      questionTimerSecondsRef.current[qId] = timeLimit;
+    }
 
-    // Start the per-question countdown
-    questionTimerIntervalRef.current = setInterval(() => {
-      setQuestionTimers(prev => {
-        const remaining = prev[qId] !== undefined ? prev[qId] : timeLimit;
-        if (remaining <= 1) {
-          // Time's up for this question — clear interval and auto-advance
-          if (questionTimerIntervalRef.current) {
-            clearInterval(questionTimerIntervalRef.current);
-            questionTimerIntervalRef.current = null;
-          }
-          // Auto-advance in a microtask so we don't set state during state update
-          setTimeout(() => {
-            const idx       = currentQuestionIndexRef.current;
-            const questions = allQuestionsRef.current;
-            if (idx < questions.length - 1) {
-              setCurrentQuestionIndex(idx + 1);
-            }
-          }, 0);
-          return { ...prev, [qId]: 0 };
-        }
-        return { ...prev, [qId]: remaining - 1 };
-      });
+    // Show correct time immediately (no one-second delay on first render)
+    setCurrentQTimerDisplay(questionTimerSecondsRef.current[qId]);
+
+    const interval = setInterval(() => {
+      const remaining = questionTimerSecondsRef.current[qId];
+
+      if (remaining <= 1) {
+        clearInterval(interval);
+        questionTimerSecondsRef.current[qId] = 0;
+        setCurrentQTimerDisplay(0);
+        // Auto-advance to the next question
+        setCurrentQuestionIndex(prev => {
+          const questions = allQuestionsRef.current;
+          return prev < questions.length - 1 ? prev + 1 : prev;
+        });
+      } else {
+        questionTimerSecondsRef.current[qId] = remaining - 1;
+        setCurrentQTimerDisplay(remaining - 1);
+      }
     }, 1000);
 
-    return () => {
-      if (questionTimerIntervalRef.current) {
-        clearInterval(questionTimerIntervalRef.current);
-        questionTimerIntervalRef.current = null;
-      }
-    };
+    // Cleanup = pause (just stop the interval; ref keeps remaining time)
+    return () => clearInterval(interval);
   }, [currentQuestionIndex, examPhase]);
 
   // --- Setup phase handlers ---
@@ -310,14 +292,6 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   };
 
   const currentAnswer = answers.find((a) => a.questionId === currentQuestion?.id);
-
-  // Per-question remaining time for the current question (null if no limit)
-  const currentQuestionTimeRemaining =
-    currentQuestion?.timeLimit != null
-      ? (questionTimers[currentQuestion.id] !== undefined
-          ? questionTimers[currentQuestion.id]
-          : currentQuestion.timeLimit)
-      : null;
 
   // ── JD Phase UI (JWT invite links only) ────────────────────────────────────
   if (examPhase === 'jd') {
@@ -689,23 +663,23 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
         {/* Body */}
         <div className="max-w-7xl mx-auto p-4 grid grid-cols-1 lg:grid-cols-4 gap-4">
           <div className="lg:col-span-3 space-y-4">
-            {/* Per-question timer banner */}
-            {currentQuestionTimeRemaining !== null && (
+            {/* Per-question timer banner — only shown for timed questions */}
+            {currentQTimerDisplay !== null && (
               <div
                 className={`flex items-center justify-between px-4 py-2.5 rounded-lg border text-sm font-medium ${
-                  currentQuestionTimeRemaining <= 10
-                    ? 'bg-red-50 border-red-300 text-red-700'
-                    : currentQuestionTimeRemaining <= 30
+                  currentQTimerDisplay <= 10
+                    ? 'bg-red-50 border-red-300 text-red-700 animate-pulse'
+                    : currentQTimerDisplay <= 30
                     ? 'bg-amber-50 border-amber-300 text-amber-700'
                     : 'bg-blue-50 border-blue-200 text-blue-700'
                 }`}
               >
-                <span>Question time limit</span>
+                <span>⏱ Question Time</span>
                 <span className="font-bold tabular-nums text-base">
-                  {formatTime(currentQuestionTimeRemaining)}
-                  {currentQuestionTimeRemaining <= 10 && (
-                    <span className="ml-2 text-xs font-normal animate-pulse">
-                      Moving to next question…
+                  {formatTime(currentQTimerDisplay)}
+                  {currentQTimerDisplay <= 10 && (
+                    <span className="ml-2 text-xs font-normal">
+                      auto-advancing…
                     </span>
                   )}
                 </span>

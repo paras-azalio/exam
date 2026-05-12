@@ -105,8 +105,8 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
     `px-3 py-2.5 text-left text-xs font-semibold text-gray-600 cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap`;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-5xl max-h-[95vh] flex flex-col">
 
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between flex-shrink-0">
@@ -124,7 +124,7 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-auto">
+        <div className="flex-1 overflow-auto overflow-x-auto">
           {loading ? (
             <div className="p-8 text-center text-gray-400 text-sm">Loading results…</div>
           ) : error ? (
@@ -132,7 +132,7 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
           ) : rows.length === 0 ? (
             <div className="p-8 text-center text-gray-400 text-sm">No submissions yet for this exam.</div>
           ) : (
-            <table className="w-full text-sm">
+            <table className="w-full text-sm min-w-[640px]">
               <thead className="bg-gray-50 border-b border-gray-200 sticky top-0 z-10">
                 <tr>
                   <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 w-8">
