@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { adminApi, ExamRow, ResultRow } from './adminApi';
+import RecordingsModal from './RecordingsModal';
 
 interface Props {
   creds: string;
@@ -38,18 +39,23 @@ function formatDate(iso: string | null): string {
 }
 
 export default function ResultsModal({ creds, exam, onClose }: Props) {
-  const [rows, setRows]       = useState<ResultRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState('');
-  const [sortKey, setSortKey] = useState<SortKey>('createdAt');
-  const [sortDir, setSortDir] = useState<SortDir>('desc');
-  // Set of row IDs that are "checked" (flagged / moved to bottom)
-  const [checked, setChecked] = useState<Set<number>>(new Set());
+  const [rows, setRows]             = useState<ResultRow[]>([]);
+  const [loading, setLoading]       = useState(true);
+  const [error, setError]           = useState('');
+  const [sortKey, setSortKey]       = useState<SortKey>('createdAt');
+  const [sortDir, setSortDir]       = useState<SortDir>('desc');
+  const [checked, setChecked]       = useState<Set<number>>(new Set());
+  const [recordingsRow, setRecordingsRow] = useState<ResultRow | null>(null);
 
   useEffect(() => {
     adminApi.getResults(creds, exam.id)
-      .then(data => { setRows(data); setLoading(false); })
-      .catch(err  => { setError(err.message ?? 'Failed to load results'); setLoading(false); });
+      .then(data => {
+        setRows(data);
+        // Seed checked set from persisted DB flags
+        setChecked(new Set(data.filter(r => r.checked).map(r => r.id)));
+        setLoading(false);
+      })
+      .catch(err => { setError(err.message ?? 'Failed to load results'); setLoading(false); });
   }, []);
 
   const toggleSort = (key: SortKey) => {
@@ -64,7 +70,10 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
   const toggleCheck = (id: number) => {
     setChecked(prev => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
+      const nowChecked = !prev.has(id);
+      if (nowChecked) next.add(id); else next.delete(id);
+      // Persist to backend (fire-and-forget; UI is already optimistic)
+      adminApi.updateResultCheck(creds, id, nowChecked).catch(console.error);
       return next;
     });
   };
@@ -136,7 +145,10 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
               <thead className="bg-gray-50 border-b border-gray-200 sticky top-0 z-10">
                 <tr>
                   <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 w-8">
-                    {/* checkbox column header */}
+                    {/* checkbox */}
+                  </th>
+                  <th className="px-3 py-2.5 text-center text-xs font-semibold text-gray-600 whitespace-nowrap w-8">
+                    {/* recordings */}
                   </th>
                   <th className={thClass('studentName')} onClick={() => toggleSort('studentName')}>
                     Name <SortIcon col="studentName" />
@@ -178,6 +190,15 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
                           className="w-3.5 h-3.5 accent-slate-700 cursor-pointer"
                           title="Flag / move to bottom"
                         />
+                      </td>
+                      <td className="px-3 py-3 text-center">
+                        <button
+                          onClick={() => setRecordingsRow(row)}
+                          className="text-base hover:scale-110 transition-transform"
+                          title="View recordings"
+                        >
+                          📹
+                        </button>
                       </td>
                       <td className="px-3 py-3 font-medium text-gray-800">
                         {row.studentName ?? '—'}
@@ -231,6 +252,15 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
           </button>
         </div>
       </div>
+
+      {/* Recordings sub-modal */}
+      {recordingsRow && (
+        <RecordingsModal
+          creds={creds}
+          result={recordingsRow}
+          onClose={() => setRecordingsRow(null)}
+        />
+      )}
     </div>
   );
 }

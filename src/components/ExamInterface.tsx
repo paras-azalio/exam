@@ -89,6 +89,10 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   const [timeRemaining, setTimeRemaining] = useState(examData.duration);
   const [showNavigator, setShowNavigator] = useState(false);
   const [screenStoppedWarning, setScreenStoppedWarning] = useState(false);
+  const [showSubmitModal, setShowSubmitModal] = useState(false);
+
+  // Questions whose per-question timer has expired → locked for input
+  const [timedOutQuestions, setTimedOutQuestions] = useState<Set<string>>(new Set());
 
   // Per-question timer: ref persists remaining seconds across navigation,
   // state drives the display (updated once per second for current question only).
@@ -103,9 +107,24 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   const answersRef = useRef<Answer[]>([]);
   answersRef.current = answers;
 
+  // Persist answers + question order map to localStorage while exam is active so that
+  // App.tsx can sendBeacon the result if the tab is closed or the page is refreshed.
+  useEffect(() => {
+    if (examPhase !== 'active') return;
+    localStorage.setItem('qs_exam_answers', JSON.stringify(answers));
+  }, [answers, examPhase]);
+
+  // Save the stable order map once the exam goes active (it doesn't change after that).
+  useEffect(() => {
+    if (examPhase !== 'active') return;
+    localStorage.setItem('qs_exam_order_map', JSON.stringify(questionOrderMapRef.current));
+  }, [examPhase]);
+
   const {
-    startCameraRecording,
-    startScreenRecording,
+    initCameraStream,
+    initScreenStream,
+    beginRecording,
+    restartScreenRecording,
     stopAllRecording,
     screenStatus,
     cameraError,
@@ -203,6 +222,8 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
         clearInterval(interval);
         questionTimerSecondsRef.current[qId] = 0;
         setCurrentQTimerDisplay(0);
+        // Lock this question permanently
+        setTimedOutQuestions(prev => new Set([...prev, qId]));
         // Auto-advance to the next question
         setCurrentQuestionIndex(prev => {
           const questions = allQuestionsRef.current;
@@ -219,9 +240,10 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   }, [currentQuestionIndex, examPhase]);
 
   // --- Setup phase handlers ---
+  // Phase 1: acquire stream + permission only — recording does NOT start here.
   const handleStartCamera = async () => {
     setCameraError(null);
-    const ok = await startCameraRecording();
+    const ok = await initCameraStream();
     if (ok) setCameraReady(true);
   };
 
@@ -230,8 +252,14 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
     setScreenStoppedWarning(false);
     // Suppress violations for 10s while screen picker is open (may briefly exit fullscreen)
     onSuppressViolations(10_000);
-    const ok = await startScreenRecording();
-    if (ok) setScreenReady(true);
+    const ok = await initScreenStream();
+    if (!ok) return;
+    setScreenReady(true);
+    // If the exam is already active (student re-shared mid-exam), immediately
+    // attach a new recorder to the fresh stream and resume uploading.
+    if (examPhase === 'active') {
+      restartScreenRecording();
+    }
   };
 
   // "Begin Exam" on setup → go to disclaimer
@@ -239,8 +267,11 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
     setExamPhase('disclaimer');
   };
 
-  // "Start Exam" on disclaimer → activate exam (fullscreen already entered at login)
+  // "Start Exam" on disclaimer → activate exam (fullscreen already entered at login).
+  // Phase 2: recording begins here — the first video byte hits the server only
+  // after the student is in fullscreen with the exam officially started.
   const handleStartExam = () => {
+    if (needsRecording) beginRecording();
     setExamPhase('active');
     onPhaseActive();
   };
@@ -285,10 +316,13 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   };
 
   const handleSubmit = () => {
-    if (window.confirm('Are you sure you want to submit your exam?')) {
-      stopAllRecording();
-      onSubmit(answersRef.current, questionOrderMapRef.current);
-    }
+    setShowSubmitModal(true);
+  };
+
+  const handleConfirmSubmit = () => {
+    setShowSubmitModal(false);
+    stopAllRecording();
+    onSubmit(answersRef.current, questionOrderMapRef.current);
   };
 
   const currentAnswer = answers.find((a) => a.questionId === currentQuestion?.id);
@@ -567,6 +601,48 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   // ── Active Exam UI ──────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gray-50 relative">
+      {/* Submit confirmation modal */}
+      {showSubmitModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[9999] p-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full text-center">
+            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <h2 className="text-xl font-bold text-gray-800 mb-2">Submit Exam?</h2>
+            <p className="text-gray-500 text-sm mb-1">
+              You have answered{' '}
+              <span className="font-semibold text-gray-700">
+                {answers.filter(a => {
+                  const ans = a.answer;
+                  return Array.isArray(ans) ? ans.length > 0 : ans !== '';
+                }).length}
+              </span>{' '}
+              of{' '}
+              <span className="font-semibold text-gray-700">{allQuestions.length}</span>{' '}
+              questions.
+            </p>
+            <p className="text-gray-400 text-xs mb-6">This action cannot be undone.</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowSubmitModal(false)}
+                className="flex-1 py-3 border border-gray-300 text-gray-700 rounded-xl font-medium hover:bg-gray-50 transition text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmSubmit}
+                className="flex-1 py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-semibold transition text-sm"
+              >
+                Submit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Screen share stopped — violation modal */}
       {screenStoppedWarning && (
         <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50">
@@ -693,6 +769,7 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
                 onAnswerChange={handleAnswerChange}
                 onMarkToggle={handleMarkToggle}
                 sectionName={currentQuestion.sectionName}
+                locked={timedOutQuestions.has(currentQuestion.id)}
               />
             )}
 

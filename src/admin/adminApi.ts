@@ -11,6 +11,13 @@ export interface ExamRow {
   createdAt: string;
 }
 
+export interface RecordingsData {
+  sessionKey: string;
+  html: string | null;       // filename like "{sessionKey}.html", or null
+  camera: string[];          // sorted chunk filenames
+  screen: string[];          // sorted chunk filenames
+}
+
 export interface ResultRow {
   id: number;
   studentName: string | null;
@@ -20,6 +27,7 @@ export interface ResultRow {
   grade: string | null;
   startedAt: string | null;  // ISO datetime
   createdAt: string;         // ISO datetime
+  checked: boolean;
 }
 
 const authHeader = (creds: string) => ({
@@ -88,17 +96,49 @@ export const adminApi = {
     return res.json();
   },
 
+  async updateResultCheck(creds: string, resultId: number, checked: boolean): Promise<void> {
+    const res = await fetch(`${BACKEND_URL}/api/admin/results/${resultId}/check`, {
+      method: 'PATCH',
+      headers: authHeader(creds),
+      body: JSON.stringify({ checked }),
+    });
+    if (!res.ok) throw new Error('Failed to update check status');
+  },
+
+  async getRecordings(creds: string, resultId: number): Promise<RecordingsData> {
+    const res = await fetch(`${BACKEND_URL}/api/admin/results/${resultId}/recordings`, {
+      headers: authHeader(creds),
+    });
+    if (!res.ok) throw new Error('Failed to load recordings');
+    return res.json();
+  },
+
+  async deleteRecordingFolder(creds: string, resultId: number): Promise<void> {
+    const res = await fetch(`${BACKEND_URL}/api/admin/results/${resultId}/folder`, {
+      method: 'DELETE',
+      headers: authHeader(creds),
+    });
+    if (!res.ok) throw new Error('Failed to delete folder');
+  },
+
+  /** Returns the fetch-ready URL + auth header for a recording file. */
+  recordingFileUrl(sessionKey: string, filePath: string): string {
+    return `${BACKEND_URL}/api/admin/recordings/file?sessionKey=${encodeURIComponent(sessionKey)}&filePath=${encodeURIComponent(filePath)}`;
+  },
+
   async generateLink(
     creds: string,
     id: number,
     userName: string,
     userEmail: string,
     validForMinutes: number,
-  ): Promise<{ link: string; expiresAt: string }> {
+    validFromIso?: string,
+    validUntilIso?: string,
+  ): Promise<{ link: string; expiresAt: string; validFrom?: string | null }> {
     const res = await fetch(`${API_BASE}/exams/${id}/generate-link`, {
       method: 'POST',
       headers: authHeader(creds),
-      body: JSON.stringify({ userName, userEmail, validForMinutes }),
+      body: JSON.stringify({ userName, userEmail, validForMinutes, validFromIso, validUntilIso }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error ?? 'Failed to generate link');

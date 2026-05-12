@@ -133,6 +133,16 @@ function App() {
       return;
     }
 
+    // Not yet valid (nbf claim) → show friendly "opens on" message
+    if (payload.nbf && Date.now() / 1000 < payload.nbf) {
+      const opensOn = new Date(payload.nbf * 1000).toLocaleString(undefined, {
+        dateStyle: 'long',
+        timeStyle: 'short',
+      });
+      setJwtError(`This exam link is not yet active. It opens on ${opensOn}.`);
+      return;
+    }
+
     const { jti, sub: email, name, examCode } = payload;
     if (!examCode) { setJwtError('Invalid invite link: missing exam code.'); return; }
 
@@ -142,7 +152,10 @@ function App() {
       .then(data => {
         if (data.used) {
           localStorage.removeItem(LS_KEY);
-          setJwtError('This invite link has already been used. Please contact your administrator for a new link.');
+          localStorage.removeItem('qs_exam_answers');
+          localStorage.removeItem('qs_exam_order_map');
+          localStorage.removeItem('qs_exam_session_meta');
+          setJwtError('This exam has already been submitted. Please contact your administrator if you believe this is a mistake.');
           return;
         }
         return loadExamData(examCode);
@@ -152,13 +165,70 @@ function App() {
         if ((data as any).used !== undefined) return; // guard against check-token response leaking here
 
         const examDataObj = data as ExamData;
+
+        // ── Crash recovery ────────────────────────────────────────────────────
+        // If the browser crashed while an exam was active the beforeunload beacon
+        // never fired.  localStorage will still hold the saved answers from the
+        // previous session.  Auto-submit them now so the result is recorded.
+        const crashAnswersRaw = localStorage.getItem('qs_exam_answers');
+        const crashMetaRaw    = localStorage.getItem('qs_exam_session_meta');
+        if (crashAnswersRaw && crashMetaRaw) {
+          const crashAnswers:  Answer[]                  = JSON.parse(crashAnswersRaw);
+          const crashOrderMap: Record<string, number>    = JSON.parse(localStorage.getItem('qs_exam_order_map') ?? '{}');
+          const crashMeta:     Record<string, string>    = JSON.parse(crashMetaRaw);
+
+          // Wipe all crash-recovery data before doing anything else
+          ['qs_exam_answers', 'qs_exam_order_map', 'qs_exam_session_meta', LS_KEY]
+            .forEach(k => localStorage.removeItem(k));
+
+          const crashResult = calculateScore(examDataObj, crashAnswers, crashOrderMap);
+          const crashGrade  = resolveGrade(examDataObj, crashResult.score, crashResult.totalMarks);
+
+          fetch(`${BACKEND_URL}/api/result/save`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sessionKey:   crashMeta.sessionKey,
+              studentName:  crashMeta.studentName,
+              studentEmail: crashMeta.studentEmail || undefined,
+              jti:          crashMeta.jwtJti       || undefined,
+              examCode:     examDataObj.examCode,
+              examTitle:    examDataObj.examTitle,
+              score:        crashResult.score,
+              totalMarks:   crashResult.totalMarks,
+              grade:        crashGrade || null,
+              details:      crashResult.details,
+              startedAt:    crashMeta.startTime    || null,
+            }),
+          }).catch(err => console.error('[exam] Crash-recovery submit failed:', err));
+
+          setExamData(examDataObj);
+          setStudentName(crashMeta.studentName ?? '');
+          setResultData(crashResult);
+          setState('result');
+          return;
+        }
+
+        // ── Normal exam start ─────────────────────────────────────────────────
+        const sk        = generateSessionKey(name ?? 'candidate', examCode);
+        const startTime = new Date().toISOString();
+
+        // Persist session metadata so a browser crash can recover answers on reload
+        localStorage.setItem('qs_exam_session_meta', JSON.stringify({
+          sessionKey:   sk,
+          studentName:  name  ?? '',
+          studentEmail: email ?? '',
+          jwtJti:       jti   ?? '',
+          startTime,
+        }));
+
         setStudentName(name ?? '');
         setStudentEmail(email ?? '');
         setJwtJti(jti ?? '');
         setExamData(examDataObj);
-        setSessionKey(generateSessionKey(name ?? 'candidate', examCode));
+        setSessionKey(sk);
         setViolations(0);
-        setExamStartTime(new Date().toISOString());
+        setExamStartTime(startTime);
         setIsJwtMode(true);
         setState('exam');
       })
@@ -187,10 +257,60 @@ function App() {
         window.location.href = 'https://www.azalio.io/';
         return;
       }
+      // nbf check: token not yet active — show "opens on" message but keep it in storage
+      if (payload.nbf && Date.now() / 1000 < payload.nbf) {
+        const opensOn = new Date(payload.nbf * 1000).toLocaleString(undefined, {
+          dateStyle: 'long',
+          timeStyle: 'short',
+        });
+        setJwtError(`This exam link is not yet active. It opens on ${opensOn}.`);
+        return;
+      }
       startExamFromToken(stored);
     }
     // No token at all → falls through to CareersRedirectPage
   }, []);
+
+  // ── Beacon submit on tab-close / page refresh ──────────────────────────────
+  // `fetch` is cancelled when the page unloads; `navigator.sendBeacon` is the
+  // only browser API that survives a tab close.  We read the answers that
+  // ExamInterface continuously mirrors to localStorage so we always have the
+  // latest state even inside this event handler (closures would be stale).
+  useEffect(() => {
+    if (state !== 'exam' || examPhase !== 'active' || !examData) return;
+
+    const handleUnload = () => {
+      const savedAnswers: Answer[] = JSON.parse(
+        localStorage.getItem('qs_exam_answers') ?? '[]'
+      );
+      const savedOrderMap: Record<string, number> = JSON.parse(
+        localStorage.getItem('qs_exam_order_map') ?? '{}'
+      );
+
+      const result = calculateScore(examData, savedAnswers, savedOrderMap);
+      const grade  = resolveGrade(examData, result.score, result.totalMarks);
+
+      const payload = {
+        sessionKey,
+        studentName,
+        studentEmail:   studentEmail  || undefined,
+        jti:            jwtJti        || undefined,
+        examCode:       examData.examCode,
+        examTitle:      examData.examTitle,
+        score:          result.score,
+        totalMarks:     result.totalMarks,
+        grade:          grade || null,
+        details:        result.details,
+        startedAt:      examStartTime,
+      };
+
+      const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+      navigator.sendBeacon(`${BACKEND_URL}/api/result/save`, blob);
+    };
+
+    window.addEventListener('beforeunload', handleUnload);
+    return () => window.removeEventListener('beforeunload', handleUnload);
+  }, [state, examPhase, examData, sessionKey, studentName, studentEmail, jwtJti, examStartTime]);
 
   const handleViolation = () => {
     if (Date.now() < suppressUntil.current) return;
@@ -226,7 +346,10 @@ function App() {
     setResultData(result);
     setState('result');
     if (document.fullscreenElement) document.exitFullscreen();
-    localStorage.removeItem('qs_exam_token'); // token consumed on submit
+    localStorage.removeItem('qs_exam_token');        // token consumed on submit
+    localStorage.removeItem('qs_exam_answers');      // clear beacon fallback data
+    localStorage.removeItem('qs_exam_order_map');
+    localStorage.removeItem('qs_exam_session_meta'); // clear crash-recovery metadata
     persistResult(examData, result.score, result.totalMarks, result.details);
   };
 
