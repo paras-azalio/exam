@@ -2,16 +2,20 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ExamData, Answer, QuestionStatus, Section } from '../types/exam';
 import { QuestionDisplay } from './QuestionDisplay';
 import { QuestionNavigator } from './QuestionNavigator';
+import { JobDescriptionPage } from './JobDescriptionPage';
 import { formatTime } from '../utils/examUtils';
 import { useExamRecorder } from '../hooks/useExamRecorder';
 
 interface ExamInterfaceProps {
   examData: ExamData;
   studentName: string;
+  studentEmail?: string;
   sessionKey: string;
+  isJwtMode?: boolean;
   onSubmit: (answers: Answer[], questionOrderMap: Record<string, number>) => void;
   onSuppressViolations: (ms: number) => void;
   onPhaseActive: () => void;
+  onViolation?: () => void;
   violations: number;
 }
 
@@ -28,9 +32,10 @@ const shuffleArray = <T,>(arr: T[]): T[] => {
 export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   examData,
   studentName,
+  studentEmail = '',
   sessionKey,
+  isJwtMode = false,
   onSubmit,
-  onBeginExam,
   onViolation,
   onSuppressViolations,
   onPhaseActive,
@@ -44,9 +49,15 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   const [activeSections] = useState<Section[]>(() => {
     const shuffled = examData.sections.map((section) => ({
       ...section,
-      questions: section.shuffleQuestions
+      questions: (section.shuffleQuestions
         ? shuffleArray(section.questions)
-        : section.questions,
+        : section.questions
+      ).map((q) =>
+        // Shuffle MCQ options once at exam start if the question has shuffleOptions enabled
+        q.shuffleOptions && q.options && q.options.length > 1
+          ? { ...q, options: shuffleArray(q.options) }
+          : q
+      ),
     }));
     let counter = 1;
     return shuffled.map((section) => ({
@@ -68,10 +79,12 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   const questionOrderMapRef = useRef<Record<string, number>>({});
   questionOrderMapRef.current = Object.fromEntries(allQuestions.map((q) => [q.id, q.number]));
 
-  // exam phases: setup → disclaimer → active
-  const [examPhase, setExamPhase] = useState<'setup' | 'disclaimer' | 'active'>(
-    needsRecording ? 'setup' : 'disclaimer'
-  );
+  // exam phases: jd (jwt only) → setup → disclaimer → active
+  const initialPhase = (): 'jd' | 'setup' | 'disclaimer' | 'active' => {
+    if (isJwtMode && examData.jobDescription?.trim()) return 'jd';
+    return needsRecording ? 'setup' : 'disclaimer';
+  };
+  const [examPhase, setExamPhase] = useState<'jd' | 'setup' | 'disclaimer' | 'active'>(initialPhase);
   const [cameraReady, setCameraReady] = useState(!recording.camera);
   const [screenReady, setScreenReady] = useState(!recording.screen);
   const [disclaimerAgreed, setDisclaimerAgreed] = useState(false);
@@ -82,14 +95,42 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   const [timeRemaining, setTimeRemaining] = useState(examData.duration);
   const [showNavigator, setShowNavigator] = useState(false);
   const [screenStoppedWarning, setScreenStoppedWarning] = useState(false);
+  const [showSubmitModal, setShowSubmitModal] = useState(false);
+
+  // Questions whose per-question timer has expired → locked for input
+  const [timedOutQuestions, setTimedOutQuestions] = useState<Set<string>>(new Set());
+
+  // Per-question timer: ref persists remaining seconds across navigation,
+  // state drives the display (updated once per second for current question only).
+  const questionTimerSecondsRef = useRef<Record<string, number>>({});
+  const [currentQTimerDisplay, setCurrentQTimerDisplay] = useState<number | null>(null);
+
+  // Ref to latest allQuestions for use inside interval (avoids stale closure)
+  const allQuestionsRef = useRef(allQuestions);
+  allQuestionsRef.current = allQuestions;
 
   // Keep a ref to answers so the timer callback always reads the latest value
   const answersRef = useRef<Answer[]>([]);
   answersRef.current = answers;
 
+  // Persist answers + question order map to localStorage while exam is active so that
+  // App.tsx can sendBeacon the result if the tab is closed or the page is refreshed.
+  useEffect(() => {
+    if (examPhase !== 'active') return;
+    localStorage.setItem('qs_exam_answers', JSON.stringify(answers));
+  }, [answers, examPhase]);
+
+  // Save the stable order map once the exam goes active (it doesn't change after that).
+  useEffect(() => {
+    if (examPhase !== 'active') return;
+    localStorage.setItem('qs_exam_order_map', JSON.stringify(questionOrderMapRef.current));
+  }, [examPhase]);
+
   const {
-    startCameraRecording,
-    startScreenRecording,
+    initCameraStream,
+    initScreenStream,
+    beginRecording,
+    restartScreenRecording,
     stopAllRecording,
     screenStatus,
     cameraError,
@@ -121,10 +162,22 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
 
   // Stop recording on unmount regardless of how exam ends
   useEffect(() => {
-    return () => stopAllRecording();
+    return () => { stopAllRecording(); };
   }, []);
 
-  // Timer — only runs when exam is active
+  // When screen share is stopped by the user (browser native UI):
+  // 1. Reset screenReady so the setup phase shows the grant button again.
+  // 2. Count it as a violation if the exam is already active.
+  useEffect(() => {
+    if (screenStatus === 'stopped' && recording.screen) {
+      setScreenReady(false);
+      if (examPhase === 'active') {
+        onViolation?.();
+      }
+    }
+  }, [screenStatus]);
+
+  // Main exam timer — only runs when exam is active
   const doAutoSubmit = useCallback(() => {
     stopAllRecording();
     onSubmit(answersRef.current, questionOrderMapRef.current);
@@ -148,18 +201,55 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
     return () => clearInterval(timer);
   }, [examPhase]);
 
-  // Register a violation when screen share is stopped during active exam
+  // Per-question timer — starts when entering a question, pauses when leaving,
+  // resumes from saved remaining time on return.
   useEffect(() => {
-    if (examPhase === 'active' && recording.screen && screenStatus === 'stopped') {
-      setScreenStoppedWarning(true);
-      onViolation();
+    // No timer when exam isn't active or question has no time limit
+    if (examPhase !== 'active' || !currentQuestion?.timeLimit) {
+      setCurrentQTimerDisplay(null);
+      return;
     }
-  }, [screenStatus]);
+
+    const qId       = currentQuestion.id;
+    const timeLimit = currentQuestion.timeLimit;
+
+    // Initialize remaining seconds on first visit; otherwise resume from saved value
+    if (questionTimerSecondsRef.current[qId] === undefined) {
+      questionTimerSecondsRef.current[qId] = timeLimit;
+    }
+
+    // Show correct time immediately (no one-second delay on first render)
+    setCurrentQTimerDisplay(questionTimerSecondsRef.current[qId]);
+
+    const interval = setInterval(() => {
+      const remaining = questionTimerSecondsRef.current[qId];
+
+      if (remaining <= 1) {
+        clearInterval(interval);
+        questionTimerSecondsRef.current[qId] = 0;
+        setCurrentQTimerDisplay(0);
+        // Lock this question permanently
+        setTimedOutQuestions(prev => new Set([...prev, qId]));
+        // Auto-advance to the next question
+        setCurrentQuestionIndex(prev => {
+          const questions = allQuestionsRef.current;
+          return prev < questions.length - 1 ? prev + 1 : prev;
+        });
+      } else {
+        questionTimerSecondsRef.current[qId] = remaining - 1;
+        setCurrentQTimerDisplay(remaining - 1);
+      }
+    }, 1000);
+
+    // Cleanup = pause (just stop the interval; ref keeps remaining time)
+    return () => clearInterval(interval);
+  }, [currentQuestionIndex, examPhase]);
 
   // --- Setup phase handlers ---
+  // Phase 1: acquire stream + permission only — recording does NOT start here.
   const handleStartCamera = async () => {
     setCameraError(null);
-    const ok = await startCameraRecording();
+    const ok = await initCameraStream();
     if (ok) setCameraReady(true);
   };
 
@@ -168,8 +258,14 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
     setScreenStoppedWarning(false);
     // Suppress violations for 10s while screen picker is open (may briefly exit fullscreen)
     onSuppressViolations(10_000);
-    const ok = await startScreenRecording();
-    if (ok) setScreenReady(true);
+    const ok = await initScreenStream();
+    if (!ok) return;
+    setScreenReady(true);
+    // If the exam is already active (student re-shared mid-exam), immediately
+    // attach a new recorder to the fresh stream and resume uploading.
+    if (examPhase === 'active') {
+      restartScreenRecording();
+    }
   };
 
   // "Begin Exam" on setup → go to disclaimer
@@ -177,8 +273,11 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
     setExamPhase('disclaimer');
   };
 
-  // "Start Exam" on disclaimer → activate exam (fullscreen already entered at login)
+  // "Start Exam" on disclaimer → activate exam (fullscreen already entered at login).
+  // Phase 2: recording begins here — the first video byte hits the server only
+  // after the student is in fullscreen with the exam officially started.
   const handleStartExam = () => {
+    if (needsRecording) beginRecording();
     setExamPhase('active');
     onPhaseActive();
   };
@@ -223,13 +322,28 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   };
 
   const handleSubmit = () => {
-    if (window.confirm('Are you sure you want to submit your exam?')) {
-      stopAllRecording();
-      onSubmit(answersRef.current, questionOrderMapRef.current);
-    }
+    setShowSubmitModal(true);
+  };
+
+  const handleConfirmSubmit = () => {
+    setShowSubmitModal(false);
+    stopAllRecording();
+    onSubmit(answersRef.current, questionOrderMapRef.current);
   };
 
   const currentAnswer = answers.find((a) => a.questionId === currentQuestion?.id);
+
+  // ── JD Phase UI (JWT invite links only) ────────────────────────────────────
+  if (examPhase === 'jd') {
+    return (
+      <JobDescriptionPage
+        examData={examData}
+        studentName={studentName}
+        studentEmail={studentEmail}
+        onNext={() => setExamPhase(needsRecording ? 'setup' : 'disclaimer')}
+      />
+    );
+  }
 
   // ── Setup Phase UI ──────────────────────────────────────────────────────────
   if (examPhase === 'setup') {
@@ -346,6 +460,46 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
     );
   }
 
+  // ── Screen-share-stopped blocker (disclaimer + active phases) ──────────────
+  // Shown as a full-screen overlay whenever screen recording is required but stopped.
+  // Pauses the exam visually and forces the user to re-share before continuing.
+  const screenStopped = recording.screen && screenStatus === 'stopped'
+    && (examPhase === 'disclaimer' || examPhase === 'active');
+
+  if (screenStopped) {
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-[9999] p-4">
+        <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full text-center">
+          <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg className="w-8 h-8 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+            </svg>
+          </div>
+          <h2 className="text-xl font-bold text-gray-800 mb-2">
+            {examPhase === 'active' ? 'Exam Paused' : 'Screen Share Required'}
+          </h2>
+          <p className="text-gray-500 text-sm mb-6">
+            Screen sharing has stopped. You must share your entire screen to
+            {examPhase === 'active' ? ' resume the exam.' : ' continue.'}
+            {'\n'}Please click the button below and select your entire screen.
+          </p>
+          {screenError && (
+            <p className="text-red-500 text-xs mb-4 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              {screenError}
+            </p>
+          )}
+          <button
+            onClick={handleStartScreenShare}
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-xl transition text-sm"
+          >
+            Share Screen
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // ── Disclaimer Phase UI ─────────────────────────────────────────────────────
   if (examPhase === 'disclaimer') {
     const maxV = examData.maxViolations ?? 3;
@@ -358,10 +512,6 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
         title: 'No Tab Switching',
         desc: 'Switching tabs or minimising the browser window counts as a violation.',
       },
-      // {
-      //   title: 'No Developer Tools',
-      //   desc: 'Opening browser developer tools (F12, Ctrl+Shift+I, etc.) is prohibited.',
-      // },
       {
         title: 'You can click on hide button next to stop screen share',
         desc: 'Dont click on stop screen sharing as you might get disqualified.',
@@ -457,6 +607,48 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   // ── Active Exam UI ──────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gray-50 relative">
+      {/* Submit confirmation modal */}
+      {showSubmitModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[9999] p-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full text-center">
+            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <h2 className="text-xl font-bold text-gray-800 mb-2">Submit Exam?</h2>
+            <p className="text-gray-500 text-sm mb-1">
+              You have answered{' '}
+              <span className="font-semibold text-gray-700">
+                {answers.filter(a => {
+                  const ans = a.answer;
+                  return Array.isArray(ans) ? ans.length > 0 : ans !== '';
+                }).length}
+              </span>{' '}
+              of{' '}
+              <span className="font-semibold text-gray-700">{allQuestions.length}</span>{' '}
+              questions.
+            </p>
+            <p className="text-gray-400 text-xs mb-6">This action cannot be undone.</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowSubmitModal(false)}
+                className="flex-1 py-3 border border-gray-300 text-gray-700 rounded-xl font-medium hover:bg-gray-50 transition text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmSubmit}
+                className="flex-1 py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-semibold transition text-sm"
+              >
+                Submit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Screen share stopped — violation modal */}
       {screenStoppedWarning && (
         <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50">
@@ -482,6 +674,7 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
           </div>
         </div>
       )}
+
       {/* Watermark */}
       <div
         className="fixed inset-0 pointer-events-none z-0 flex items-center justify-center"
@@ -527,16 +720,7 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
                 </div>
               )}
 
-              {recording.screen && screenStatus === 'stopped' && (
-                <button
-                  onClick={handleStartScreenShare}
-                  className="text-xs px-2 py-1 bg-orange-500 text-white rounded hover:bg-orange-600"
-                >
-                  Re-share Screen
-                </button>
-              )}
-
-              {/* Timer */}
+              {/* Main exam timer */}
               <div className="text-right">
                 <div
                   className={`text-2xl font-bold ${
@@ -561,6 +745,29 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
         {/* Body */}
         <div className="max-w-7xl mx-auto p-4 grid grid-cols-1 lg:grid-cols-4 gap-4">
           <div className="lg:col-span-3 space-y-4">
+            {/* Per-question timer banner — only shown for timed questions */}
+            {currentQTimerDisplay !== null && (
+              <div
+                className={`flex items-center justify-between px-4 py-2.5 rounded-lg border text-sm font-medium ${
+                  currentQTimerDisplay <= 10
+                    ? 'bg-red-50 border-red-300 text-red-700 animate-pulse'
+                    : currentQTimerDisplay <= 30
+                    ? 'bg-amber-50 border-amber-300 text-amber-700'
+                    : 'bg-blue-50 border-blue-200 text-blue-700'
+                }`}
+              >
+                <span>⏱ Question Time</span>
+                <span className="font-bold tabular-nums text-base">
+                  {formatTime(currentQTimerDisplay)}
+                  {currentQTimerDisplay <= 10 && (
+                    <span className="ml-2 text-xs font-normal">
+                      auto-advancing…
+                    </span>
+                  )}
+                </span>
+              </div>
+            )}
+
             {currentQuestion && (
               <QuestionDisplay
                 question={currentQuestion}
@@ -568,6 +775,7 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
                 onAnswerChange={handleAnswerChange}
                 onMarkToggle={handleMarkToggle}
                 sectionName={currentQuestion.sectionName}
+                locked={timedOutQuestions.has(currentQuestion.id)}
               />
             )}
 

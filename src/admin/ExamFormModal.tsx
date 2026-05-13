@@ -172,8 +172,8 @@ export default function ExamFormModal({ initial, active, onActiveChange, onSave,
 
   // ── render ────────────────────────────────────────────────────────────────────
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl flex flex-col max-h-[94vh]">
+    <div className="fixed inset-0 bg-black bg-opacity-60 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-3xl flex flex-col max-h-[95vh]">
 
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between flex-shrink-0">
@@ -186,7 +186,7 @@ export default function ExamFormModal({ initial, active, onActiveChange, onSave,
 
           {/* ── Basic Info ── */}
           <Section title="Exam Info">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Input label="Exam Code" value={f.examCode}
                 onChange={e => set({ examCode: e.target.value.toUpperCase() })} placeholder="EXAM001" />
               <Input label="Exam Title" value={f.examTitle}
@@ -195,6 +195,19 @@ export default function ExamFormModal({ initial, active, onActiveChange, onSave,
                 onChange={e => set({ durationMinutes: Number(e.target.value) })} />
               <Input label="Max Violations" type="number" min={1} value={f.maxViolations}
                 onChange={e => set({ maxViolations: Number(e.target.value) })} />
+            </div>
+            <div className="mt-3">
+              <span className="text-xs font-medium text-gray-600 block mb-1">
+                Job Description
+                <span className="ml-1 text-gray-400 font-normal">(shown to candidate before exam starts via invite link)</span>
+              </span>
+              <textarea
+                value={f.jobDescription}
+                onChange={e => set({ jobDescription: e.target.value })}
+                rows={4}
+                placeholder="Describe the role, responsibilities, required skills…"
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-slate-400 resize-y"
+              />
             </div>
             <div className="flex gap-4 flex-wrap mt-2">
               <Check label="Can Navigate (back/forward)" checked={f.canNavigate} onChange={v => set({ canNavigate: v })} />
@@ -234,7 +247,7 @@ export default function ExamFormModal({ initial, active, onActiveChange, onSave,
 
           {/* ── Result Display ── */}
           <Section title="Result Display">
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <Check label="Show Student Name" checked={f.showStudentName} onChange={v => set({ showStudentName: v })} />
               <Check label="Show Exam Code" checked={f.showExamCode} onChange={v => set({ showExamCode: v })} />
               <Check label="Show Score" checked={f.showScore} onChange={v => set({ showScore: v })} />
@@ -424,10 +437,14 @@ function QuestionCard({ q, index, expanded, onToggle, onUpdate, onRemove, onUpda
           {/* MCQ options */}
           {q.type === 'mcq' && (
             <div>
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
                 <span className="text-xs font-medium text-gray-600">Options & Correct Answer</span>
-                <Check label="Multiple correct" checked={q.multipleChoice}
-                  onChange={v => onUpdate({ multipleChoice: v, correctAnswer: [] })} />
+                <div className="flex items-center gap-4">
+                  <Check label="Shuffle options" checked={q.shuffleOptions}
+                    onChange={v => onUpdate({ shuffleOptions: v })} />
+                  <Check label="Multiple correct" checked={q.multipleChoice}
+                    onChange={v => onUpdate({ multipleChoice: v, correctAnswer: [] })} />
+                </div>
               </div>
               <div className="space-y-1.5">
                 {q.options.map((opt, i) => {

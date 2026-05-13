@@ -9,6 +9,7 @@ export interface QuestionForm {
   type: 'mcq' | 'subjective';
   question: string;
   multipleChoice: boolean;
+  shuffleOptions: boolean;
   options: OptionForm[];
   correctAnswer: string[];
   marks: number;
@@ -32,6 +33,7 @@ export interface GradeForm {
 export interface ExamFormState {
   examCode: string;
   examTitle: string;
+  jobDescription: string;
   durationMinutes: number;
   canNavigate: boolean;
   submissionType: string;
@@ -67,6 +69,7 @@ export const emptyQuestion = (): QuestionForm => ({
   type: 'mcq',
   question: '',
   multipleChoice: false,
+  shuffleOptions: false,
   options: [
     { id: 'a', text: '', isImage: false },
     { id: 'b', text: '', isImage: false },
@@ -90,6 +93,7 @@ export const emptySection = (): SectionForm => ({
 export const defaultForm = (): ExamFormState => ({
   examCode: '',
   examTitle: '',
+  jobDescription: '',
   durationMinutes: 60,
   canNavigate: true,
   submissionType: 'complete',
@@ -114,6 +118,7 @@ export function formToJson(f: ExamFormState): object {
   return {
     examCode: f.examCode.toUpperCase(),
     examTitle: f.examTitle,
+    jobDescription: f.jobDescription,
     duration: f.durationMinutes * 60,
     canNavigate: f.canNavigate,
     submissionType: f.submissionType,
@@ -150,6 +155,7 @@ export function formToJson(f: ExamFormState): object {
           return {
             ...base,
             multipleChoice: q.multipleChoice,
+            shuffleOptions: q.shuffleOptions,
             options: q.options
               .filter(o => o.text.trim() !== '')
               .map((o, i) => ({
@@ -170,6 +176,7 @@ export function jsonToForm(raw: string): ExamFormState {
   return {
     examCode: j.examCode ?? '',
     examTitle: j.examTitle ?? '',
+    jobDescription: j.jobDescription ?? '',
     durationMinutes: Math.floor((j.duration ?? 3600) / 60),
     canNavigate: j.canNavigate ?? true,
     submissionType: j.submissionType ?? 'complete',
@@ -196,6 +203,7 @@ export function jsonToForm(raw: string): ExamFormState {
         type: q.type ?? 'mcq',
         question: q.question ?? '',
         multipleChoice: q.multipleChoice ?? false,
+        shuffleOptions: q.shuffleOptions ?? false,
         options: (q.options ?? []).map((o: any) => ({
           id: o.id,
           text: o.text ?? '',
