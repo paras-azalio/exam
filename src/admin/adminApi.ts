@@ -9,6 +9,7 @@ export interface ExamRow {
   examData: string;
   active: boolean;
   createdAt: string;
+  deletedAt: string | null;
 }
 
 export interface RecordingsData {
@@ -71,12 +72,39 @@ export const adminApi = {
     return data;
   },
 
+  /** Soft-delete: moves exam to the trash bin. */
   async remove(creds: string, id: number): Promise<void> {
     const res = await fetch(`${API_BASE}/exams/${id}`, {
       method: 'DELETE',
       headers: authHeader(creds),
     });
-    if (!res.ok) throw new Error('Failed to delete');
+    if (!res.ok) throw new Error('Failed to move to trash');
+  },
+
+  /** Returns all soft-deleted (trashed) exams. */
+  async listTrashed(creds: string): Promise<ExamRow[]> {
+    const res = await fetch(`${API_BASE}/exams/trash`, { headers: authHeader(creds) });
+    if (!res.ok) throw new Error('Failed to load trash');
+    return res.json();
+  },
+
+  /** Restores a trashed exam back to the live list. */
+  async restore(creds: string, id: number): Promise<ExamRow> {
+    const res = await fetch(`${API_BASE}/exams/${id}/restore`, {
+      method: 'PATCH',
+      headers: authHeader(creds),
+    });
+    if (!res.ok) throw new Error('Failed to restore exam');
+    return res.json();
+  },
+
+  /** Permanently deletes an exam — cannot be undone. */
+  async deletePermanently(creds: string, id: number): Promise<void> {
+    const res = await fetch(`${API_BASE}/exams/${id}/permanent`, {
+      method: 'DELETE',
+      headers: authHeader(creds),
+    });
+    if (!res.ok) throw new Error('Failed to permanently delete');
   },
 
   async toggle(creds: string, id: number): Promise<ExamRow> {
