@@ -156,6 +156,8 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
 
   const sessionKeyRef = useRef(sessionKey);
   sessionKeyRef.current = sessionKey;
+  const jwtTokenRef = useRef(jwtToken);
+  jwtTokenRef.current = jwtToken;
 
   const answersRef = useRef<Answer[]>([]);
   answersRef.current = answers;
@@ -218,6 +220,8 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
     const currentId = allQuestionsRef.current[currentQuestionIndex]?.id;
     for (const questionId of [...pendingVerbalUploadRef.current]) {
       if (questionId === currentId) continue;
+      const q = allQuestionsRef.current.find(q => q.id === questionId);
+      if (q?.allowRerecord) continue; // upload only on explicit submit, timer expiry, or exam submit
       const blob = verbalBlobsRef.current.get(questionId);
       if (!blob) { pendingVerbalUploadRef.current.delete(questionId); continue; }
       pendingVerbalUploadRef.current.delete(questionId);
@@ -334,6 +338,21 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
         questionTimerSecondsRef.current[qId] = 0;
         setCurrentQTimerDisplay(0);
         setTimedOutQuestions(prev => new Set([...prev, qId]));
+        if (pendingVerbalUploadRef.current.has(qId) && !uploadedVerbalRef.current.has(qId)) {
+          const blob = verbalBlobsRef.current.get(qId);
+          if (blob) {
+            pendingVerbalUploadRef.current.delete(qId);
+            const sk    = sessionKeyRef.current;
+            const token = jwtTokenRef.current;
+            const url   = token
+              ? `${BACKEND_URL}/api/result/audio/${sk}/${qId}?token=${encodeURIComponent(token)}`
+              : `${BACKEND_URL}/api/result/audio/${sk}/${qId}`;
+            const form  = new FormData();
+            form.append('file', blob, `verbal_${qId}.webm`);
+            fetch(url, { method: 'POST', body: form })
+              .then(r => { if (r.ok) uploadedVerbalRef.current.add(qId); });
+          }
+        }
         setCurrentQuestionIndex(prev => {
           const questions = allQuestionsRef.current;
           return prev < questions.length - 1 ? prev + 1 : prev;
