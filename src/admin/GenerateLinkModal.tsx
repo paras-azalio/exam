@@ -221,13 +221,13 @@ export default function GenerateLinkModal({ creds, exam, onClose }: Props) {
                 </div>
                 {validFrom && validUntil && (
                   <p className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
-                    🔒 Token active from <strong>{new Date(validFrom).toLocaleString()}</strong>
+                    🔒 Exam link active from <strong>{new Date(validFrom).toLocaleString()}</strong>
                     {' '}until <strong>{new Date(validUntil).toLocaleString()}</strong>
                   </p>
                 )}
                 {!validFrom && validUntil && (
                   <p className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
-                    🔒 Token valid immediately until <strong>{new Date(validUntil).toLocaleString()}</strong>
+                    🔒 Exam link valid immediately until <strong>{new Date(validUntil).toLocaleString()}</strong>
                   </p>
                 )}
               </div>

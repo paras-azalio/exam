@@ -9,6 +9,7 @@ export interface ExamRow {
   examData: string;
   active: boolean;
   createdAt: string;
+  deletedAt: string | null;
 }
 
 export interface RecordingsData {
@@ -16,18 +17,42 @@ export interface RecordingsData {
   html: string | null;       // filename like "{sessionKey}.html", or null
   camera: string[];          // sorted chunk filenames
   screen: string[];          // sorted chunk filenames
+  verbal: string[];          // verbal_*.webm filenames (one per verbal question)
+}
+
+/** One verbal AI evaluation record — mirrors the ai_result DB table. */
+export interface AiResultRow {
+  id: number;
+  questionId: string;
+  question: string;
+  precisionLevel: number | null;
+  aiScore: number | null;
+  maxMarks: number | null;
+  expectedReply: string | null;
+  audioPath: string | null;
+  initiatedAt: string | null;   // ISO datetime
+  receivedAt: string | null;    // ISO datetime
+  status: 'PENDING' | 'SENT' | 'SUCCESS' | 'FAILED';
 }
 
 export interface ResultRow {
   id: number;
   studentName: string | null;
   studentEmail: string | null;
+  /** MCQ / subjective score only. */
   score: number | null;
+  /** Maximum MCQ / subjective marks. */
   totalMarks: number | null;
   grade: string | null;
   startedAt: string | null;  // ISO datetime
   createdAt: string;         // ISO datetime
   checked: boolean;
+  /** MCQ score + Σ ai_score (SUCCESS verbal rows) — computed server-side. */
+  totalScore: number;
+  /** MCQ totalMarks + Σ maxMarks (all verbal questions) — computed server-side. */
+  totalMaxMarks: number;
+  /** Verbal AI evaluation records — one per verbal question in the exam. */
+  aiResults: AiResultRow[];
 }
 
 const authHeader = (creds: string) => ({
@@ -71,12 +96,39 @@ export const adminApi = {
     return data;
   },
 
+  /** Soft-delete: moves exam to the trash bin. */
   async remove(creds: string, id: number): Promise<void> {
     const res = await fetch(`${API_BASE}/exams/${id}`, {
       method: 'DELETE',
       headers: authHeader(creds),
     });
-    if (!res.ok) throw new Error('Failed to delete');
+    if (!res.ok) throw new Error('Failed to move to trash');
+  },
+
+  /** Returns all soft-deleted (trashed) exams. */
+  async listTrashed(creds: string): Promise<ExamRow[]> {
+    const res = await fetch(`${API_BASE}/exams/trash`, { headers: authHeader(creds) });
+    if (!res.ok) throw new Error('Failed to load trash');
+    return res.json();
+  },
+
+  /** Restores a trashed exam back to the live list. */
+  async restore(creds: string, id: number): Promise<ExamRow> {
+    const res = await fetch(`${API_BASE}/exams/${id}/restore`, {
+      method: 'PATCH',
+      headers: authHeader(creds),
+    });
+    if (!res.ok) throw new Error('Failed to restore exam');
+    return res.json();
+  },
+
+  /** Permanently deletes an exam — cannot be undone. */
+  async deletePermanently(creds: string, id: number): Promise<void> {
+    const res = await fetch(`${API_BASE}/exams/${id}/permanent`, {
+      method: 'DELETE',
+      headers: authHeader(creds),
+    });
+    if (!res.ok) throw new Error('Failed to permanently delete');
   },
 
   async toggle(creds: string, id: number): Promise<ExamRow> {
@@ -86,6 +138,19 @@ export const adminApi = {
     });
     if (!res.ok) throw new Error('Failed to toggle');
     return res.json();
+  },
+
+  /** Retries a failed or stale AI evaluation for a single verbal question. */
+  async retryAiEvaluation(creds: string, aiResultId: number): Promise<{
+    status: string; aiResultId: number; questionId: string;
+  }> {
+    const res = await fetch(`${API_BASE}/ai-results/${aiResultId}/retry`, {
+      method: 'POST',
+      headers: authHeader(creds),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error ?? 'Failed to retry');
+    return data;
   },
 
   async getResults(creds: string, id: number): Promise<ResultRow[]> {
