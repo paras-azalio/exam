@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { adminApi, RecordingsData, ResultRow } from './adminApi';
-import { BACKEND_URL } from '../config';
+import { generateAdminPDF } from '../utils/pdfGenerator';
 
 interface Props {
   creds: string;
   result: ResultRow;
+  examCode: string;
   onClose: () => void;
 }
 
@@ -159,7 +160,6 @@ function VideoPlayer({ sessionKey, chunks, type, creds, label }: VideoPlayerProp
                 : 'bg-white text-gray-600 hover:bg-gray-50'
             }`}
           >
-            {/* Play this chunk */}
             <button
               onClick={() => loadChunk(idx, true)}
               className="w-5 h-5 flex-shrink-0 flex items-center justify-center rounded-full bg-current bg-opacity-10 hover:bg-opacity-20 transition"
@@ -184,7 +184,7 @@ function VideoPlayer({ sessionKey, chunks, type, creds, label }: VideoPlayerProp
 }
 
 // ── Main Modal ────────────────────────────────────────────────────────────────
-export default function RecordingsModal({ creds, result, onClose }: Props) {
+export default function RecordingsModal({ creds, result, examCode, onClose }: Props) {
   const [data, setData]             = useState<RecordingsData | null>(null);
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState('');
@@ -195,11 +195,21 @@ export default function RecordingsModal({ creds, result, onClose }: Props) {
 
   const authHeaders = { Authorization: `Basic ${btoa(creds)}` };
 
+  // Refs for scroll-to-section
+  const bodyRef   = useRef<HTMLDivElement>(null);
+  const cameraRef = useRef<HTMLElement>(null);
+  const screenRef = useRef<HTMLElement>(null);
+  const verbalRef = useRef<HTMLElement>(null);
+
   useEffect(() => {
     adminApi.getRecordings(creds, result.id)
       .then(d  => { setData(d); setLoading(false); })
       .catch(e => { setError(e.message); setLoading(false); });
   }, []);
+
+  const scrollTo = (ref: React.RefObject<HTMLElement | null>) => {
+    ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   const openHtmlReport = async () => {
     if (!data?.html) return;
@@ -230,6 +240,25 @@ export default function RecordingsModal({ creds, result, onClose }: Props) {
     }
   };
 
+  const handleDownloadPDF = () => {
+    generateAdminPDF(
+      result.studentName ?? 'Unknown',
+      examCode,
+      result.score,
+      result.totalMarks,
+      result.totalScore,
+      result.totalMaxMarks,
+      result.grade,
+      result.aiResults.map(ar => ({
+        questionId: ar.questionId,
+        question:   ar.question,
+        aiScore:    ar.aiScore,
+        maxMarks:   ar.maxMarks,
+        status:     ar.status,
+      }))
+    );
+  };
+
   const hasAnyRecording = data && (data.camera.length > 0 || data.screen.length > 0 || !!data.html || (data.verbal?.length ?? 0) > 0);
   const totalChunks = (data?.camera.length ?? 0) + (data?.screen.length ?? 0);
 
@@ -255,7 +284,7 @@ export default function RecordingsModal({ creds, result, onClose }: Props) {
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto px-5 py-5 space-y-6">
+        <div ref={bodyRef} className="flex-1 overflow-y-auto px-5 py-5 space-y-6">
 
           {loading && (
             <div className="flex justify-center py-10">
@@ -276,13 +305,15 @@ export default function RecordingsModal({ creds, result, onClose }: Props) {
           )}
 
           {!loading && !error && data && (
-
             <>
-              {/* Summary bar */}
+              {/* Summary bar — chips scroll to their section */}
               <div className="flex flex-wrap gap-3">
-                <Chip icon="📷" label="Camera" count={data.camera.length} />
-                <Chip icon="🖥️" label="Screen"  count={data.screen.length} />
-                <Chip icon="🎤" label="Verbal"  count={data.verbal?.length ?? 0} />
+                <Chip icon="📷" label="Camera" count={data.camera.length}
+                  onClick={() => scrollTo(cameraRef)} />
+                <Chip icon="🖥️" label="Screen"  count={data.screen.length}
+                  onClick={() => scrollTo(screenRef)} />
+                <Chip icon="🎤" label="Verbal"  count={data.verbal?.length ?? 0}
+                  onClick={() => scrollTo(verbalRef)} />
                 <Chip icon="📄" label="Report"  count={data.html ? 1 : 0} />
                 <Chip icon="🎞️" label="Total chunks" count={totalChunks} plain />
               </div>
@@ -304,12 +335,18 @@ export default function RecordingsModal({ creds, result, onClose }: Props) {
                     >
                       {reportLoading ? 'Loading…' : '↗ View'}
                     </button>
+                    <button
+                      onClick={handleDownloadPDF}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg transition whitespace-nowrap"
+                    >
+                      ⬇ PDF
+                    </button>
                   </div>
                 </section>
               )}
 
               {/* Camera recording */}
-              <section>
+              <section ref={cameraRef}>
                 <SectionTitle>
                   📷 Camera Recording
                   <span className="ml-2 text-xs font-normal text-gray-400">
@@ -326,7 +363,7 @@ export default function RecordingsModal({ creds, result, onClose }: Props) {
               </section>
 
               {/* Screen recording */}
-              <section>
+              <section ref={screenRef}>
                 <SectionTitle>
                   🖥️ Screen Recording
                   <span className="ml-2 text-xs font-normal text-gray-400">
@@ -343,31 +380,39 @@ export default function RecordingsModal({ creds, result, onClose }: Props) {
               </section>
 
               {/* Verbal recordings */}
-              {(data.verbal?.length ?? 0) > 0 && (
-                <section>
-                  <SectionTitle>
-                    Verbal Answers
-                    <span className="ml-2 text-xs font-normal text-gray-400">
-                      {data.verbal.length} question{data.verbal.length !== 1 ? 's' : ''}
-                    </span>
-                  </SectionTitle>
-                  <div className="space-y-3">
-                    {data.verbal.map((filename) => {
-                      // Extract questionId from filename: verbal_{questionId}.webm
-                      const qId = filename.replace(/^verbal_/, '').replace(/\.webm$/, '');
-                      return (
-                        <VerbalAudioPlayer
-                          key={filename}
-                          sessionKey={data.sessionKey}
-                          filename={filename}
-                          questionId={qId}
-                          creds={creds}
-                        />
-                      );
-                    })}
-                  </div>
-                </section>
-              )}
+              <section ref={verbalRef}>
+                {(data.verbal?.length ?? 0) > 0 ? (
+                  <>
+                    <SectionTitle>
+                      🎤 Verbal Answers
+                      <span className="ml-2 text-xs font-normal text-gray-400">
+                        {data.verbal.length} question{data.verbal.length !== 1 ? 's' : ''}
+                      </span>
+                    </SectionTitle>
+                    <div className="space-y-3">
+                      {data.verbal.map((filename) => {
+                        const qId = filename.replace(/^verbal_/, '').replace(/\.webm$/, '');
+                        return (
+                          <VerbalAudioPlayer
+                            key={filename}
+                            sessionKey={data.sessionKey}
+                            filename={filename}
+                            questionId={qId}
+                            creds={creds}
+                          />
+                        );
+                      })}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <SectionTitle>Verbal Answers</SectionTitle>
+                    <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 text-sm text-gray-400 italic">
+                      No verbal recordings found.
+                    </div>
+                  </>
+                )}
+              </section>
 
               {/* Danger zone */}
               {hasAnyRecording && !deleted && (
@@ -496,19 +541,28 @@ function VerbalAudioPlayer({ sessionKey, filename, questionId, creds }: VerbalAu
   );
 }
 
-function Chip({ icon, label, count, plain }: { icon: string; label: string; count: number; plain?: boolean }) {
+function Chip({
+  icon, label, count, plain, onClick,
+}: {
+  icon: string; label: string; count: number; plain?: boolean; onClick?: () => void;
+}) {
   const active = count > 0;
   return (
-    <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border ${
-      plain
-        ? 'bg-gray-50 text-gray-600 border-gray-200'
-        : active
-        ? 'bg-green-50 text-green-700 border-green-200'
-        : 'bg-gray-50 text-gray-400 border-gray-200'
-    }`}>
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition ${
+        onClick ? 'cursor-pointer hover:brightness-95 active:scale-95' : 'cursor-default'
+      } ${
+        plain
+          ? 'bg-gray-50 text-gray-600 border-gray-200'
+          : active
+          ? 'bg-green-50 text-green-700 border-green-200'
+          : 'bg-gray-50 text-gray-400 border-gray-200'
+      }`}
+    >
       <span>{icon}</span>
       <span>{label}</span>
       <span className="font-bold">{count}</span>
-    </div>
+    </button>
   );
 }

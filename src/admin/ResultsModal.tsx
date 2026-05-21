@@ -423,6 +423,7 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
         <RecordingsModal
           creds={creds}
           result={recordingsRow}
+          examCode={exam.examCode}
           onClose={() => setRecordingsRow(null)}
         />
       )}

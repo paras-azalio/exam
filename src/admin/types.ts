@@ -18,6 +18,7 @@ export interface QuestionForm {
   // verbal-only
   maxDuration: string;      // input value (seconds)
   autoStartDelay: string;   // input value (seconds, 0 = manual)
+  allowRerecord: boolean;   // if true: student can re-record before submitting
   expectedReply: string;
   precision: number;        // 1–5
 }
@@ -83,6 +84,7 @@ export const emptyQuestion = (): QuestionForm => ({
   timeLimit: '',
   maxDuration: '60',
   autoStartDelay: '0',
+  allowRerecord: false,
   expectedReply: '',
   precision: 3,
 });
@@ -175,6 +177,7 @@ export function formToJson(f: ExamFormState): object {
             ...base,
             maxDuration:    q.maxDuration !== '' ? Number(q.maxDuration) : 60,
             autoStartDelay: q.autoStartDelay !== '' ? Number(q.autoStartDelay) : 0,
+            allowRerecord:  q.allowRerecord,
             expectedReply:  q.expectedReply,
             precision:      q.precision,
           };
@@ -229,6 +232,7 @@ export function jsonToForm(raw: string): ExamFormState {
         timeLimit: q.timeLimit != null ? String(q.timeLimit) : '',
         maxDuration:    q.maxDuration != null ? String(q.maxDuration) : '60',
         autoStartDelay: q.autoStartDelay != null ? String(q.autoStartDelay) : '0',
+        allowRerecord:  q.allowRerecord ?? false,
         expectedReply:  q.expectedReply ?? '',
         precision:      q.precision ?? 3,
       })),

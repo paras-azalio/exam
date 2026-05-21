@@ -517,6 +517,23 @@ function QuestionCard({ q, index, expanded, onToggle, onUpdate, onRemove, onUpda
                     className="w-20 px-2 py-1.5 text-sm border border-gray-300 rounded-lg outline-none" />
                   <span className="text-xs text-gray-400 block mt-0.5">1 lenient → 5 strict</span>
                 </label>
+                <label className="block self-start pt-1">
+                  <span className="text-xs font-medium text-gray-600 block mb-1.5">Allow Re-record</span>
+                  <button
+                    type="button"
+                    onClick={() => onUpdate({ allowRerecord: !q.allowRerecord })}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                      q.allowRerecord ? 'bg-orange-500' : 'bg-gray-300'
+                    }`}
+                  >
+                    <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                      q.allowRerecord ? 'translate-x-6' : 'translate-x-1'
+                    }`} />
+                  </button>
+                  <span className="text-xs text-gray-400 block mt-0.5">
+                    {q.allowRerecord ? 'Manual submit' : 'Auto-upload'}
+                  </span>
+                </label>
               </div>
               <div>
                 <span className="text-xs font-medium text-gray-600 block mb-1">
