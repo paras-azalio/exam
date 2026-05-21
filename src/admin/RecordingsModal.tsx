@@ -230,7 +230,7 @@ export default function RecordingsModal({ creds, result, onClose }: Props) {
     }
   };
 
-  const hasAnyRecording = data && (data.camera.length > 0 || data.screen.length > 0 || !!data.html);
+  const hasAnyRecording = data && (data.camera.length > 0 || data.screen.length > 0 || !!data.html || (data.verbal?.length ?? 0) > 0);
   const totalChunks = (data?.camera.length ?? 0) + (data?.screen.length ?? 0);
 
   return (
@@ -282,6 +282,7 @@ export default function RecordingsModal({ creds, result, onClose }: Props) {
               <div className="flex flex-wrap gap-3">
                 <Chip icon="📷" label="Camera" count={data.camera.length} />
                 <Chip icon="🖥️" label="Screen"  count={data.screen.length} />
+                <Chip icon="🎤" label="Verbal"  count={data.verbal?.length ?? 0} />
                 <Chip icon="📄" label="Report"  count={data.html ? 1 : 0} />
                 <Chip icon="🎞️" label="Total chunks" count={totalChunks} plain />
               </div>
@@ -340,6 +341,33 @@ export default function RecordingsModal({ creds, result, onClose }: Props) {
                   label="Screen"
                 />
               </section>
+
+              {/* Verbal recordings */}
+              {(data.verbal?.length ?? 0) > 0 && (
+                <section>
+                  <SectionTitle>
+                    Verbal Answers
+                    <span className="ml-2 text-xs font-normal text-gray-400">
+                      {data.verbal.length} question{data.verbal.length !== 1 ? 's' : ''}
+                    </span>
+                  </SectionTitle>
+                  <div className="space-y-3">
+                    {data.verbal.map((filename) => {
+                      // Extract questionId from filename: verbal_{questionId}.webm
+                      const qId = filename.replace(/^verbal_/, '').replace(/\.webm$/, '');
+                      return (
+                        <VerbalAudioPlayer
+                          key={filename}
+                          sessionKey={data.sessionKey}
+                          filename={filename}
+                          questionId={qId}
+                          creds={creds}
+                        />
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
 
               {/* Danger zone */}
               {hasAnyRecording && !deleted && (
@@ -403,6 +431,68 @@ export default function RecordingsModal({ creds, result, onClose }: Props) {
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
     <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-1">{children}</h4>
+  );
+}
+
+// ── Verbal audio player ───────────────────────────────────────────────────────
+interface VerbalAudioPlayerProps {
+  sessionKey: string;
+  filename: string;
+  questionId: string;
+  creds: string;
+}
+
+function VerbalAudioPlayer({ sessionKey, filename, questionId, creds }: VerbalAudioPlayerProps) {
+  const [blobUrl, setBlobUrl]   = useState<string | null>(null);
+  const [loading, setLoading]   = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [error, setError]       = useState('');
+
+  const authHeaders = { Authorization: `Basic ${btoa(creds)}` };
+
+  const load = async () => {
+    if (blobUrl) { setExpanded(e => !e); return; }
+    setLoading(true);
+    setError('');
+    try {
+      const url = adminApi.recordingFileUrl(sessionKey, filename);
+      const res = await fetch(url, { headers: authHeaders });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob    = await res.blob();
+      const newUrl  = URL.createObjectURL(new Blob([blob], { type: 'audio/webm' }));
+      setBlobUrl(newUrl);
+      setExpanded(true);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="border border-orange-200 rounded-xl overflow-hidden bg-white">
+      <button
+        onClick={load}
+        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-orange-50 transition text-left"
+      >
+        <span className="text-lg">🎤</span>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-gray-800">Question: <span className="font-mono text-orange-700">{questionId}</span></p>
+          <p className="text-xs text-gray-400">{filename}</p>
+        </div>
+        {loading ? (
+          <div className="w-4 h-4 border-2 border-orange-500 border-t-transparent rounded-full animate-spin" />
+        ) : (
+          <span className="text-gray-400 text-sm">{expanded ? '▾' : '▸'}</span>
+        )}
+      </button>
+      {error && <p className="px-4 pb-3 text-xs text-red-500">{error}</p>}
+      {expanded && blobUrl && (
+        <div className="px-4 pb-4">
+          <audio controls src={blobUrl} className="w-full h-10" />
+        </div>
+      )}
+    </div>
   );
 }
 

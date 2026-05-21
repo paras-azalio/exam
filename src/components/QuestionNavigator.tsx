@@ -23,12 +23,17 @@ export const QuestionNavigator: React.FC<QuestionNavigatorProps> = ({
     section.questions.map((q) => ({ ...q, sectionId: section.sectionId }))
   );
 
+  const hasContent = (answer: Answer | undefined): boolean => {
+    if (!answer) return false;
+    return Array.isArray(answer.answer) ? answer.answer.length > 0 : answer.answer !== '';
+  };
+
   const getQuestionStatus = (questionId: string): string => {
     const status = questionStatuses.find((s) => s.questionId === questionId);
     const answer = answers.find((a) => a.questionId === questionId);
 
     if (answer?.isMarked) return 'marked';
-    if (answer) return 'answered';
+    if (hasContent(answer)) return 'answered';
     if (status?.status === 'not-answered') return 'not-answered';
     return 'not-visited';
   };
@@ -55,11 +60,11 @@ export const QuestionNavigator: React.FC<QuestionNavigatorProps> = ({
   const stats = {
     answered: questionStatuses.filter((s) => {
       const answer = answers.find((a) => a.questionId === s.questionId);
-      return answer && !answer.isMarked;
+      return hasContent(answer) && !answer?.isMarked;
     }).length,
     notAnswered: questionStatuses.filter((s) => {
       const answer = answers.find((a) => a.questionId === s.questionId);
-      return s.status === 'not-answered' && !answer;
+      return s.status === 'not-answered' && !hasContent(answer);
     }).length,
     marked: answers.filter((a) => a.isMarked).length,
     notVisited: questionStatuses.filter((s) => s.status === 'not-visited').length,

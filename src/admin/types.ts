@@ -6,7 +6,7 @@ export interface OptionForm {
 
 export interface QuestionForm {
   _key: string;
-  type: 'mcq' | 'subjective';
+  type: 'mcq' | 'subjective' | 'verbal';
   question: string;
   multipleChoice: boolean;
   shuffleOptions: boolean;
@@ -15,6 +15,11 @@ export interface QuestionForm {
   marks: number;
   negativeMarks: number;
   timeLimit: string;
+  // verbal-only
+  maxDuration: string;      // input value (seconds)
+  autoStartDelay: string;   // input value (seconds, 0 = manual)
+  expectedReply: string;
+  precision: number;        // 1–5
 }
 
 export interface SectionForm {
@@ -56,11 +61,7 @@ export interface ExamFormState {
 const uid = () => Math.random().toString(36).slice(2);
 
 export const DEFAULT_GRADING: GradeForm[] = [
-  { grade: 'S', minPercentage: 90 },
-  { grade: 'A', minPercentage: 80 },
-  { grade: 'B', minPercentage: 70 },
-  { grade: 'C', minPercentage: 60 },
-  { grade: 'D', minPercentage: 50 },
+  { grade: 'P', minPercentage: 70 },
   { grade: 'F', minPercentage: 0 },
 ];
 
@@ -80,6 +81,10 @@ export const emptyQuestion = (): QuestionForm => ({
   marks: 1,
   negativeMarks: 0,
   timeLimit: '',
+  maxDuration: '60',
+  autoStartDelay: '0',
+  expectedReply: '',
+  precision: 3,
 });
 
 export const emptySection = (): SectionForm => ({
@@ -165,6 +170,15 @@ export function formToJson(f: ExamFormState): object {
               })),
           };
         }
+        if (q.type === 'verbal') {
+          return {
+            ...base,
+            maxDuration:    q.maxDuration !== '' ? Number(q.maxDuration) : 60,
+            autoStartDelay: q.autoStartDelay !== '' ? Number(q.autoStartDelay) : 0,
+            expectedReply:  q.expectedReply,
+            precision:      q.precision,
+          };
+        }
         return base;
       }),
     })),
@@ -213,6 +227,10 @@ export function jsonToForm(raw: string): ExamFormState {
         marks: q.marks ?? 1,
         negativeMarks: q.negativeMarks ?? 0,
         timeLimit: q.timeLimit != null ? String(q.timeLimit) : '',
+        maxDuration:    q.maxDuration != null ? String(q.maxDuration) : '60',
+        autoStartDelay: q.autoStartDelay != null ? String(q.autoStartDelay) : '0',
+        expectedReply:  q.expectedReply ?? '',
+        precision:      q.precision ?? 3,
       })),
     })),
   };

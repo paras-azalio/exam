@@ -51,7 +51,13 @@ export const generatePDF = (
         <tbody>
           ${details
             .map(
-              (d) => `
+              (d) => d.questionType === 'verbal' ? `
+            <tr>
+              <td>Question ${d.questionNumber}</td>
+              <td class="verbal">Verbal — Audio Recorded</td>
+              <td>—</td>
+              <td>${d.totalMarks}</td>
+            </tr>` : `
             <tr>
               <td>Question ${d.questionNumber}</td>
               <td class="${d.correct ? 'correct' : 'incorrect'}">
@@ -71,6 +77,22 @@ export const generatePDF = (
     // Full question text + all options (with correct / selected highlighting) + marks
     bodyHTML = details
       .map((d) => {
+        // ── Verbal question block ───────────────────────────────────────────
+        if (d.questionType === 'verbal') {
+          return `
+            <div class="q-block verbal-block">
+              <div class="q-header">
+                <span class="q-num">Question ${d.questionNumber}</span>
+                <span class="verbal">Verbal — Audio Recorded</span>
+                <span class="q-marks">— / ${d.totalMarks}</span>
+              </div>
+              <p class="q-text">${d.questionText}</p>
+              <div class="subj-answers">
+                <div>Verbal answer was recorded. Score will be assigned after evaluation.</div>
+              </div>
+            </div>`;
+        }
+
         let optionsHTML = '';
 
         if (d.questionType === 'mcq' && Array.isArray(d.options)) {
@@ -168,8 +190,10 @@ export const generatePDF = (
     .correct-hint { color: #2e7d32; }
 
     /* status colours (shared) */
-    .correct   { color: green;  font-weight: bold; }
-    .incorrect { color: red;    font-weight: bold; }
+    .correct      { color: green;   font-weight: bold; }
+    .incorrect    { color: red;     font-weight: bold; }
+    .verbal       { color: #ea580c; font-weight: bold; }
+    .verbal-block { border-color: #f97316; }
 
     @media print { body { padding: 20px; } }
   `;
