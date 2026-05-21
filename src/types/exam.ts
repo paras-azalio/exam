@@ -19,6 +19,7 @@ export interface Question {
   // verbal-only fields
   maxDuration?: number;      // seconds the recording runs before auto-stop
   autoStartDelay?: number;   // seconds before recording starts automatically (0 = manual)
+  allowRerecord?: boolean;   // if false (default): upload fires immediately on completion; if true: student may re-record before submitting
   expectedReply?: string;    // reference answer sent to python code — never shown to student
   precision?: number;        // 1–5 strictness for AI evaluation
 }

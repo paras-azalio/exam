@@ -9,8 +9,9 @@ interface QuestionDisplayProps {
   onMarkToggle: () => void;
   sectionName: string;
   locked?: boolean;
-  /** Called when a verbal recording completes — passes the recorded blob. */
   onVerbalRecorded?: (questionId: string, blob: Blob) => void;
+  onVerbalRecordingStarted?: (questionId: string) => void;
+  onSubmitVerbalRecording?: (questionId: string) => void;
 }
 
 export const QuestionDisplay: React.FC<QuestionDisplayProps> = ({
@@ -21,6 +22,8 @@ export const QuestionDisplay: React.FC<QuestionDisplayProps> = ({
   sectionName,
   locked = false,
   onVerbalRecorded,
+  onVerbalRecordingStarted,
+  onSubmitVerbalRecording,
 }) => {
   const isSelected = (optionId: string): boolean => {
     if (!answer?.answer) return false;
@@ -160,6 +163,8 @@ export const QuestionDisplay: React.FC<QuestionDisplayProps> = ({
             onVerbalRecorded?.(question.id, blob);
             onAnswerChange('recorded');
           }}
+          onRecordingStarted={() => onVerbalRecordingStarted?.(question.id)}
+          onSubmitRecording={() => onSubmitVerbalRecording?.(question.id)}
           locked={locked}
         />
       )}
@@ -172,12 +177,14 @@ interface VerbalRecorderProps {
   question: Question;
   hasRecording: boolean;
   onRecorded: (blob: Blob) => void;
+  onRecordingStarted?: () => void;
+  onSubmitRecording?: () => void;
   locked: boolean;
 }
 
 type RecordState = 'idle' | 'countdown' | 'recording' | 'done';
 
-function VerbalRecorder({ question, hasRecording, onRecorded, locked }: VerbalRecorderProps) {
+function VerbalRecorder({ question, hasRecording, onRecorded, onRecordingStarted, onSubmitRecording, locked }: VerbalRecorderProps) {
   const maxDuration    = question.maxDuration    ?? 60;
   const autoStartDelay = question.autoStartDelay ?? 0;
 
@@ -185,6 +192,7 @@ function VerbalRecorder({ question, hasRecording, onRecorded, locked }: VerbalRe
   const [countdown, setCountdown]     = useState(autoStartDelay);
   const [elapsed, setElapsed]         = useState(0);
   const [playbackUrl, setPlaybackUrl] = useState<string | null>(null);
+  const [submitted, setSubmitted]     = useState(false);
 
   const mediaRecorderRef  = useRef<MediaRecorder | null>(null);
   const chunksRef         = useRef<Blob[]>([]);
@@ -252,6 +260,7 @@ function VerbalRecorder({ question, hasRecording, onRecorded, locked }: VerbalRe
       mr.start(1000);
       setRecordState('recording');
       setElapsed(0);
+      onRecordingStarted?.();
 
       // Simple tick — auto-stop is handled by the useEffect above
       recordTimerRef.current = setInterval(() => {
@@ -384,13 +393,26 @@ function VerbalRecorder({ question, hasRecording, onRecorded, locked }: VerbalRe
               <span>Recording saved ({formatTime(Math.min(elapsed, maxDuration))})</span>
             </div>
             {playbackUrl && <audio controls src={playbackUrl} className="w-full h-10" />}
-            {!locked && (
-              <button
-                onClick={handleReRecord}
-                className="text-xs text-gray-500 hover:text-gray-700 border border-gray-300 rounded-lg px-3 py-1.5 transition"
-              >
-                🔄 Re-record
-              </button>
+            {!locked && question.allowRerecord && !submitted && (
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={handleReRecord}
+                  className="text-xs text-gray-500 hover:text-gray-700 border border-gray-300 rounded-lg px-3 py-1.5 transition"
+                >
+                  🔄 Re-record
+                </button>
+                {!question.timeLimit && (
+                  <button
+                    onClick={() => { setSubmitted(true); onSubmitRecording?.(); }}
+                    className="text-xs text-white bg-green-600 hover:bg-green-700 rounded-lg px-3 py-1.5 transition font-medium"
+                  >
+                    ✓ Submit Recording
+                  </button>
+                )}
+              </div>
+            )}
+            {(submitted || !question.allowRerecord) && (
+              <p className="text-xs text-green-600 font-medium">Recording submitted for processing.</p>
             )}
           </div>
         )}

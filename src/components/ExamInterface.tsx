@@ -89,32 +89,40 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   // Tracks questionIds whose audio was already successfully uploaded to the server
   // at recording-completion time — skip re-uploading these at submit.
   const uploadedVerbalRef = useRef<Set<string>>(new Set());
+  // Verbal uploads deferred because re-record was still available; sent on navigation away.
+  const pendingVerbalUploadRef = useRef<Set<string>>(new Set());
 
   const handleVerbalRecorded = useCallback((questionId: string, blob: Blob) => {
     verbalBlobsRef.current.set(questionId, blob);
 
-    // Fire-and-forget: upload the audio immediately when the verbal timer ends.
-    // This lets the backend fire the AI API call right away, so the score often
-    // arrives well before the student submits the rest of the exam.
-    const sk  = sessionKeyRef.current;
-    const url = jwtToken
-      ? `${BACKEND_URL}/api/result/audio/${sk}/${questionId}?token=${encodeURIComponent(jwtToken)}`
-      : `${BACKEND_URL}/api/result/audio/${sk}/${questionId}`;
+    const question = allQuestionsRef.current.find(q => q.id === questionId);
+    const canRerecord = (question?.allowRerecord ?? false) && !timedOutQuestionsRef.current.has(questionId);
 
-    const form = new FormData();
-    form.append('file', blob, `verbal_${questionId}.webm`);
-    fetch(url, { method: 'POST', body: form })
-      .then(r => {
-        if (r.ok) {
-          uploadedVerbalRef.current.add(questionId);
-          console.log(`[verbal] early upload OK for question ${questionId}`);
-        } else {
-          console.warn(`[verbal] early upload failed (HTTP ${r.status}) for ${questionId} — will retry at submit`);
-        }
-      })
-      .catch(e => {
-        console.warn(`[verbal] early upload error for ${questionId} — will retry at submit:`, e);
-      });
+    if (!canRerecord) {
+      // allowRerecord is false OR question is locked — upload immediately.
+      const sk  = sessionKeyRef.current;
+      const url = jwtToken
+        ? `${BACKEND_URL}/api/result/audio/${sk}/${questionId}?token=${encodeURIComponent(jwtToken)}`
+        : `${BACKEND_URL}/api/result/audio/${sk}/${questionId}`;
+      const form = new FormData();
+      form.append('file', blob, `verbal_${questionId}.webm`);
+      fetch(url, { method: 'POST', body: form })
+        .then(r => {
+          if (r.ok) {
+            uploadedVerbalRef.current.add(questionId);
+            console.log(`[verbal] upload OK for question ${questionId}`);
+          } else {
+            console.warn(`[verbal] upload failed (HTTP ${r.status}) for ${questionId} — will retry at submit`);
+          }
+        })
+        .catch(e => {
+          console.warn(`[verbal] upload error for ${questionId} — will retry at submit:`, e);
+        });
+    } else {
+      // allowRerecord is true — defer until user explicitly submits or navigates away.
+      pendingVerbalUploadRef.current.add(questionId);
+      console.log(`[verbal] deferred upload for ${questionId} (allowRerecord=true)`);
+    }
   }, [jwtToken]);
 
   // exam phases: jd (jwt only) → setup → disclaimer → active
@@ -137,6 +145,9 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   const [showSubmitModal, setShowSubmitModal] = useState(false);
 
   const [timedOutQuestions, setTimedOutQuestions] = useState<Set<string>>(new Set());
+  const timedOutQuestionsRef = useRef(timedOutQuestions);
+  timedOutQuestionsRef.current = timedOutQuestions;
+  const [verbalRecordingStarted, setVerbalRecordingStarted] = useState<Set<string>>(new Set());
   const questionTimerSecondsRef = useRef<Record<string, number>>({});
   const [currentQTimerDisplay, setCurrentQTimerDisplay] = useState<number | null>(null);
 
@@ -201,6 +212,36 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
     }
   }, [currentQuestionIndex, examPhase]);
 
+  // When the user navigates away from a question, fire any deferred verbal uploads for it.
+  useEffect(() => {
+    if (examPhase !== 'active') return;
+    const currentId = allQuestionsRef.current[currentQuestionIndex]?.id;
+    for (const questionId of [...pendingVerbalUploadRef.current]) {
+      if (questionId === currentId) continue;
+      const blob = verbalBlobsRef.current.get(questionId);
+      if (!blob) { pendingVerbalUploadRef.current.delete(questionId); continue; }
+      pendingVerbalUploadRef.current.delete(questionId);
+      const sk  = sessionKeyRef.current;
+      const url = jwtToken
+        ? `${BACKEND_URL}/api/result/audio/${sk}/${questionId}?token=${encodeURIComponent(jwtToken)}`
+        : `${BACKEND_URL}/api/result/audio/${sk}/${questionId}`;
+      const form = new FormData();
+      form.append('file', blob, `verbal_${questionId}.webm`);
+      fetch(url, { method: 'POST', body: form })
+        .then(r => {
+          if (r.ok) {
+            uploadedVerbalRef.current.add(questionId);
+            console.log(`[verbal] deferred upload OK for ${questionId}`);
+          } else {
+            console.warn(`[verbal] deferred upload failed (HTTP ${r.status}) for ${questionId} — will retry at submit`);
+          }
+        })
+        .catch(e => {
+          console.warn(`[verbal] deferred upload error for ${questionId} — will retry at submit:`, e);
+        });
+    }
+  }, [currentQuestionIndex, examPhase, jwtToken]);
+
   // Stop recording on unmount regardless of how exam ends
   useEffect(() => {
     return () => { stopAllRecording(); };
@@ -240,7 +281,33 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
     return () => clearInterval(timer);
   }, [examPhase]);
 
-  // Per-question timer
+  const handleVerbalRecordingStarted = useCallback((questionId: string) => {
+    setVerbalRecordingStarted(prev => new Set([...prev, questionId]));
+  }, []);
+
+  const handleSubmitVerbalRecording = useCallback((questionId: string) => {
+    pendingVerbalUploadRef.current.delete(questionId);
+    const blob = verbalBlobsRef.current.get(questionId);
+    if (!blob || uploadedVerbalRef.current.has(questionId)) return;
+    const sk  = sessionKeyRef.current;
+    const url = jwtToken
+      ? `${BACKEND_URL}/api/result/audio/${sk}/${questionId}?token=${encodeURIComponent(jwtToken)}`
+      : `${BACKEND_URL}/api/result/audio/${sk}/${questionId}`;
+    const form = new FormData();
+    form.append('file', blob, `verbal_${questionId}.webm`);
+    fetch(url, { method: 'POST', body: form })
+      .then(r => {
+        if (r.ok) {
+          uploadedVerbalRef.current.add(questionId);
+          console.log(`[verbal] submit-button upload OK for ${questionId}`);
+        } else {
+          console.warn(`[verbal] submit-button upload failed (HTTP ${r.status}) for ${questionId}`);
+        }
+      })
+      .catch(e => console.warn(`[verbal] submit-button upload error for ${questionId}:`, e));
+  }, [jwtToken]);
+
+  // Per-question timer — for verbal questions, waits until the student starts recording
   useEffect(() => {
     if (examPhase !== 'active' || !currentQuestion?.timeLimit) {
       setCurrentQTimerDisplay(null);
@@ -248,6 +315,13 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
     }
     const qId       = currentQuestion.id;
     const timeLimit = currentQuestion.timeLimit;
+
+    // Verbal questions: don't start the timer until the mic is actually recording
+    if (currentQuestion.type === 'verbal' && !verbalRecordingStarted.has(qId)) {
+      setCurrentQTimerDisplay(null);
+      return;
+    }
+
     if (questionTimerSecondsRef.current[qId] === undefined) {
       questionTimerSecondsRef.current[qId] = timeLimit;
     }
@@ -270,7 +344,7 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
       }
     }, 1000);
     return () => clearInterval(interval);
-  }, [currentQuestionIndex, examPhase]);
+  }, [currentQuestionIndex, examPhase, verbalRecordingStarted]);
 
   // ── Setup phase handlers ─────────────────────────────────────────────────────
 
@@ -735,6 +809,8 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
                 sectionName={currentQuestion.sectionName}
                 locked={timedOutQuestions.has(currentQuestion.id)}
                 onVerbalRecorded={handleVerbalRecorded}
+                onVerbalRecordingStarted={handleVerbalRecordingStarted}
+                onSubmitVerbalRecording={handleSubmitVerbalRecording}
               />
             )}
 
