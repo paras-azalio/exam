@@ -25,7 +25,14 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
   const hasAnyDisplay = Object.values(rd).some((v) => v === true);
 
   const handleDownloadPDF = () => {
-    generatePDF(examData, studentName, score, totalMarks, details);
+    generatePDF(
+      examData,
+      studentName,
+      score,
+      totalMarks,
+      details,
+      examData.resultDisplay?.pdfMode ?? 'summary'
+    );
   };
 
   const getGrade = (percent: number): string => {

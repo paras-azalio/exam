@@ -1,6 +1,21 @@
 import { useRef, useCallback, useState } from 'react';
+import { BACKEND_URL } from '../config';
 
-const API_BASE = 'http://localhost:8080';
+const API_BASE = BACKEND_URL;
+
+/**
+ * How long each recording segment lasts before the recorder is cycled.
+ * Every cycle produces ONE independently-playable .webm file.
+ *
+ * ─── Change this to control segment length ───────────────────────────────
+ *  10_000  →  10-second chunks  (many small files, smallest gap risk)
+ *  30_000  →  30-second chunks  (fewer files, easier to review)
+ *  60_000  →  1-minute chunks
+ * ─────────────────────────────────────────────────────────────────────────
+ */
+const CYCLE_MS = 30_000;
+
+// ─── helpers ──────────────────────────────────────────────────────────────────
 
 const getSupportedMimeType = (forScreen = false): string => {
   const types = forScreen
@@ -16,7 +31,11 @@ const uploadChunk = async (
   chunkIndex: number
 ): Promise<void> => {
   const formData = new FormData();
-  formData.append('file', blob, `${source}_chunk_${String(chunkIndex).padStart(4, '0')}.webm`);
+  formData.append(
+    'file',
+    blob,
+    `${source}_chunk_${String(chunkIndex).padStart(4, '0')}.webm`
+  );
   formData.append('sessionKey', sessionKey);
   formData.append('source', source);
   formData.append('chunkIndex', String(chunkIndex));
@@ -28,86 +47,102 @@ const uploadChunk = async (
 };
 
 /**
- * WebM chunks from MediaRecorder: only the FIRST ondataavailable blob contains the
- * EBML init segment (codec/track headers). Subsequent blobs are raw cluster data and
- * cannot be opened independently by any media player.
+ * Creates a brand-new MediaRecorder on the given stream and starts it
+ * WITHOUT a timeslice (i.e., it accumulates data until stop() is called).
  *
- * Fix: cache the init segment and prepend it to every subsequent chunk before upload,
- * so each file on disk is a self-contained, playable WebM.
+ * WHY no timeslice?
+ *   recorder.start(N)  — timeslice mode — emits raw WebM clusters every N ms.
+ *   Only the very first emission includes the EBML/WebM container header that
+ *   media players need. Every subsequent chunk is headerless and cannot be
+ *   opened independently.
+ *
+ *   recorder.start()   — no timeslice — the recorder buffers everything until
+ *   stop() is called, at which point it emits ONE complete, self-contained
+ *   WebM blob (header + all clusters). By stopping and creating a *new*
+ *   MediaRecorder on the same stream every CYCLE_MS seconds, every saved
+ *   file starts with a fresh header and is independently playable.
  */
-const buildPlayableChunk = (initSegment: Blob, clusterData: Blob): Blob =>
-  new Blob([initSegment, clusterData], { type: clusterData.type || 'video/webm' });
+const spawnRecorder = (
+  stream: MediaStream,
+  mimeType: string,
+  source: 'camera' | 'screen',
+  sessionKey: string,
+  chunkIdx: { current: number }
+): MediaRecorder => {
+  const rec = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+  rec.ondataavailable = async (e) => {
+    if (e.data.size > 0) {
+      await uploadChunk(e.data, sessionKey, source, chunkIdx.current++);
+    }
+  };
+  rec.start(); // no timeslice
+  return rec;
+};
+
+// ─── hook ─────────────────────────────────────────────────────────────────────
 
 export type ScreenShareStatus = 'idle' | 'sharing' | 'stopped';
 
+/**
+ * Two-phase recording lifecycle:
+ *
+ *  Phase 1 — setup  : initCameraStream / initScreenStream
+ *    Acquires media permissions and stores the raw streams.
+ *    Nothing is recorded or uploaded yet.
+ *    Called during the exam setup screen so the student grants access early.
+ *
+ *  Phase 2 — active : beginRecording
+ *    Creates MediaRecorder instances on the already-acquired streams and
+ *    starts the upload cycle.
+ *    Called exactly once, when the exam goes fullscreen / active.
+ *    No video data ever reaches the server before the exam officially starts.
+ */
 export const useExamRecorder = (sessionKey: string | null) => {
+  // Active recorder instances (replaced on each cycle)
   const cameraRecorder = useRef<MediaRecorder | null>(null);
   const screenRecorder = useRef<MediaRecorder | null>(null);
+
+  // Underlying media streams (kept alive across phases)
   const cameraStream = useRef<MediaStream | null>(null);
   const screenStream = useRef<MediaStream | null>(null);
+
+  // Running chunk counters (never reset mid-session so indices are always unique)
   const cameraChunk = useRef(0);
   const screenChunk = useRef(0);
 
-  // Init segments — only the first blob per recorder contains the WebM headers
-  const cameraInitSegment = useRef<Blob | null>(null);
-  const screenInitSegment = useRef<Blob | null>(null);
+  // Cycle interval handles
+  const cameraCycleTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const screenCycleTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [screenStatus, setScreenStatus] = useState<ScreenShareStatus>('idle');
-  const [cameraError, setCameraError] = useState<string | null>(null);
-  const [screenError, setScreenError] = useState<string | null>(null);
+  const [cameraError, setCameraError]   = useState<string | null>(null);
+  const [screenError, setScreenError]   = useState<string | null>(null);
 
-  const startCameraRecording = useCallback(async (): Promise<boolean> => {
-    if (!sessionKey) return false;
-    // Clean up any existing recording
-    if (cameraRecorder.current && cameraRecorder.current.state !== 'inactive') {
-      cameraRecorder.current.stop();
-    }
+  // ── Phase 1a: init camera stream ─────────────────────────────────────────────
+  // Requests permission and stores the stream. Does NOT start recording.
+
+  const initCameraStream = useCallback(async (): Promise<boolean> => {
+    // Tear down any previous stream
     cameraStream.current?.getTracks().forEach((t) => t.stop());
-    cameraChunk.current = 0;
-    cameraInitSegment.current = null;
-
+    cameraStream.current = null;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      cameraStream.current = stream;
-      const mimeType = getSupportedMimeType(false);
-      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-      cameraRecorder.current = recorder;
-
-      recorder.ondataavailable = async (e) => {
-        if (e.data.size === 0) return;
-        const idx = cameraChunk.current++;
-
-        if (idx === 0) {
-          // First chunk IS the init segment — cache it and upload as-is
-          cameraInitSegment.current = e.data;
-          await uploadChunk(e.data, sessionKey, 'camera', idx);
-        } else {
-          // Prepend cached init segment so the chunk is independently playable
-          const blob = cameraInitSegment.current
-            ? buildPlayableChunk(cameraInitSegment.current, e.data)
-            : e.data;
-          await uploadChunk(blob, sessionKey, 'camera', idx);
-        }
-      };
-
-      recorder.start(10_000);
+      cameraStream.current = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       setCameraError(null);
       return true;
     } catch (err: any) {
       setCameraError(err?.message ?? 'Camera access denied');
       return false;
     }
-  }, [sessionKey]);
+  }, []);
 
-  const startScreenRecording = useCallback(async (): Promise<boolean> => {
-    if (!sessionKey) return false;
-    // Clean up any existing recording
-    if (screenRecorder.current && screenRecorder.current.state !== 'inactive') {
-      screenRecorder.current.stop();
-    }
+  // ── Phase 1b: init screen stream ─────────────────────────────────────────────
+  // Requests permission and stores the stream. Does NOT start recording.
+
+  const initScreenStream = useCallback(async (): Promise<boolean> => {
+    // Stop any leftover tracks from a previous stream; recorder/timer cleanup is
+    // handled by the 'ended' event listener set up during the previous call.
     screenStream.current?.getTracks().forEach((t) => t.stop());
-    screenChunk.current = 0;
-    screenInitSegment.current = null;
+    screenStream.current = null;
 
     try {
       const stream = await (navigator.mediaDevices as any).getDisplayMedia({
@@ -118,10 +153,9 @@ export const useExamRecorder = (sessionKey: string | null) => {
         surfaceSwitching: 'exclude',
       });
 
-      const track = stream.getVideoTracks()[0];
+      const track    = stream.getVideoTracks()[0];
       const settings = track.getSettings() as any;
 
-      // Reject anything that isn't the full monitor
       if (settings.displaySurface && settings.displaySurface !== 'monitor') {
         stream.getTracks().forEach((t: MediaStreamTrack) => t.stop());
         setScreenError('Please share your entire screen, not a window or browser tab.');
@@ -132,32 +166,18 @@ export const useExamRecorder = (sessionKey: string | null) => {
       setScreenStatus('sharing');
       setScreenError(null);
 
-      const mimeType = getSupportedMimeType(true);
-      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-      screenRecorder.current = recorder;
-
-      recorder.ondataavailable = async (e) => {
-        if (e.data.size === 0) return;
-        const idx = screenChunk.current++;
-
-        if (idx === 0) {
-          screenInitSegment.current = e.data;
-          await uploadChunk(e.data, sessionKey, 'screen', idx);
-        } else {
-          const blob = screenInitSegment.current
-            ? buildPlayableChunk(screenInitSegment.current, e.data)
-            : e.data;
-          await uploadChunk(blob, sessionKey, 'screen', idx);
-        }
-      };
-
-      // When user stops sharing via browser UI — exam continues uninterrupted
+      // When the user stops sharing via the browser's native stop button:
+      // clean up the recorder and timer so they can re-share cleanly.
       track.addEventListener('ended', () => {
         setScreenStatus('stopped');
+        if (screenCycleTimer.current) {
+          clearInterval(screenCycleTimer.current);
+          screenCycleTimer.current = null;
+        }
+        if (screenRecorder.current?.state === 'recording') screenRecorder.current.stop();
         screenStream.current = null;
       });
 
-      recorder.start(10_000);
       return true;
     } catch (err: any) {
       if (err?.name !== 'NotAllowedError') {
@@ -165,15 +185,80 @@ export const useExamRecorder = (sessionKey: string | null) => {
       }
       return false;
     }
+  }, []);
+
+  // ── Restart screen recording on an already-active stream ─────────────────────
+  // Called when the student re-shares their screen while the exam is already
+  // active. initScreenStream has already stored the new stream; this function
+  // attaches a fresh MediaRecorder to it and restarts the upload cycle.
+  // Chunk counter is NOT reset so file indices remain unique within the session.
+
+  const restartScreenRecording = useCallback(() => {
+    if (!sessionKey || !screenStream.current) return;
+    // Safety-clear any stale timer left from before the track ended
+    if (screenCycleTimer.current) { clearInterval(screenCycleTimer.current); screenCycleTimer.current = null; }
+
+    const mimeType = getSupportedMimeType(true);
+    screenRecorder.current = spawnRecorder(
+      screenStream.current, mimeType, 'screen', sessionKey, screenChunk
+    );
+    screenCycleTimer.current = setInterval(() => {
+      if (screenRecorder.current?.state === 'recording') {
+        screenRecorder.current.stop();
+        screenRecorder.current = spawnRecorder(
+          screenStream.current!, mimeType, 'screen', sessionKey, screenChunk
+        );
+      }
+    }, CYCLE_MS);
   }, [sessionKey]);
 
+  // ── Phase 2: begin recording (exam goes active / fullscreen) ─────────────────
+  // Attaches MediaRecorder instances to whatever streams are currently live and
+  // starts the upload cycle. Called once when examPhase transitions to 'active'.
+
+  const beginRecording = useCallback(() => {
+    if (!sessionKey) return;
+
+    if (cameraStream.current) {
+      const mimeType = getSupportedMimeType(false);
+      cameraChunk.current = 0;
+      cameraRecorder.current = spawnRecorder(
+        cameraStream.current, mimeType, 'camera', sessionKey, cameraChunk
+      );
+      cameraCycleTimer.current = setInterval(() => {
+        if (cameraRecorder.current?.state === 'recording') {
+          cameraRecorder.current.stop();
+          cameraRecorder.current = spawnRecorder(
+            cameraStream.current!, mimeType, 'camera', sessionKey, cameraChunk
+          );
+        }
+      }, CYCLE_MS);
+    }
+
+    if (screenStream.current) {
+      const mimeType = getSupportedMimeType(true);
+      screenChunk.current = 0;
+      screenRecorder.current = spawnRecorder(
+        screenStream.current, mimeType, 'screen', sessionKey, screenChunk
+      );
+      screenCycleTimer.current = setInterval(() => {
+        if (screenRecorder.current?.state === 'recording') {
+          screenRecorder.current.stop();
+          screenRecorder.current = spawnRecorder(
+            screenStream.current!, mimeType, 'screen', sessionKey, screenChunk
+          );
+        }
+      }, CYCLE_MS);
+    }
+  }, [sessionKey]);
+
+  // ── Stop all ─────────────────────────────────────────────────────────────────
+
   const stopAllRecording = useCallback(() => {
-    if (cameraRecorder.current && cameraRecorder.current.state !== 'inactive') {
-      cameraRecorder.current.stop();
-    }
-    if (screenRecorder.current && screenRecorder.current.state !== 'inactive') {
-      screenRecorder.current.stop();
-    }
+    if (cameraCycleTimer.current) { clearInterval(cameraCycleTimer.current); cameraCycleTimer.current = null; }
+    if (screenCycleTimer.current) { clearInterval(screenCycleTimer.current); screenCycleTimer.current = null; }
+    if (cameraRecorder.current?.state === 'recording') cameraRecorder.current.stop();
+    if (screenRecorder.current?.state === 'recording') screenRecorder.current.stop();
     cameraStream.current?.getTracks().forEach((t) => t.stop());
     screenStream.current?.getTracks().forEach((t) => t.stop());
     cameraStream.current = null;
@@ -181,8 +266,10 @@ export const useExamRecorder = (sessionKey: string | null) => {
   }, []);
 
   return {
-    startCameraRecording,
-    startScreenRecording,
+    initCameraStream,
+    initScreenStream,
+    beginRecording,
+    restartScreenRecording,
     stopAllRecording,
     screenStatus,
     cameraError,

@@ -9,6 +9,7 @@ export interface Question {
   number: number;
   type: 'mcq' | 'subjective';
   multipleChoice?: boolean;
+  shuffleOptions?: boolean;
   question: string;
   options?: Option[];
   correctAnswer: string[];
@@ -43,6 +44,13 @@ export interface ResultDisplayConfig {
   showPerformanceSummary?: boolean;
   showPdfDownload?: boolean;
   showRetakeButton?: boolean;
+  /**
+   * Controls what is included in the downloaded PDF report.
+   * "marks-only"  — final score and percentage only
+   * "summary"     — question number + correct/wrong + marks per question (default)
+   * "detailed"    — full question text, all options with correct/user highlights, and marks
+   */
+  pdfMode?: 'marks-only' | 'summary' | 'detailed';
 }
 
 export interface ExamData {
@@ -55,6 +63,7 @@ export interface ExamData {
   grading?: GradeRule[];
   recording?: RecordingConfig;
   resultDisplay?: ResultDisplayConfig;
+  jobDescription?: string;
   sections: Section[];
 }
 
