@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { adminApi, AiResultRow, ExamRow, ResultRow } from './adminApi';
 import RecordingsModal from './RecordingsModal';
+import { BACKEND_URL } from '../config';
 
 /** Returns true when a verbal AI row is eligible for retry in the admin UI. */
 function isRetryEligible(ar: AiResultRow): boolean {
@@ -58,6 +59,37 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
   const [expandedVerbal, setExpandedVerbal] = useState<Set<number>>(new Set());
   const [retrying, setRetrying]             = useState<Set<number>>(new Set());
   const [verbalDetailPopup, setVerbalDetailPopup] = useState<AiResultRow | null>(null);
+  const [audioObjectUrl, setAudioObjectUrl] = useState<string | null>(null);
+  const [audioLoading, setAudioLoading]     = useState(false);
+
+  const closeVerbalDetail = () => {
+    setVerbalDetailPopup(null);
+    setAudioObjectUrl(prev => { if (prev) URL.revokeObjectURL(prev); return null; });
+  };
+
+  // Fetch audio blob when the verbal detail popup opens; revoke on close.
+  useEffect(() => {
+    // Revoke previous blob URL to avoid memory leaks
+    if (audioObjectUrl) { URL.revokeObjectURL(audioObjectUrl); setAudioObjectUrl(null); }
+    if (!verbalDetailPopup?.audioPath) return;
+
+    const [sessionKey, ...rest] = verbalDetailPopup.audioPath.split('/');
+    const filePath = rest.join('/');
+    if (!sessionKey || !filePath) return;
+
+    setAudioLoading(true);
+    fetch(`${BACKEND_URL}/api/admin/recordings/file?sessionKey=${encodeURIComponent(sessionKey)}&filePath=${encodeURIComponent(filePath)}`, {
+      headers: { Authorization: `Basic ${btoa(creds)}` },
+    })
+      .then(r => r.ok ? r.blob() : Promise.reject(r.status))
+      .then(blob => { setAudioObjectUrl(URL.createObjectURL(blob)); })
+      .catch(() => { setAudioObjectUrl(null); })
+      .finally(() => setAudioLoading(false));
+
+    return () => {
+      // cleanup is handled at next open or component unmount
+    };
+  }, [verbalDetailPopup]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     adminApi.getResults(creds, exam.id)
@@ -199,6 +231,9 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
                   <th className={thClass('timeTaken')} onClick={() => toggleSort('timeTaken')}>
                     Total Time Taken <SortIcon col="timeTaken" />
                   </th>
+                  <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 whitespace-nowrap">
+                    Violations
+                  </th>
                   <th className={thClass('createdAt')} onClick={() => toggleSort('createdAt')}>
                     Submitted At<SortIcon col="createdAt" />
                   </th>
@@ -321,6 +356,19 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
                       <td className="px-3 py-3 text-gray-600 font-mono text-xs">
                         {formatDuration(tt)}
                       </td>
+                      <td className="px-3 py-3 text-center">
+                        {row.violations != null ? (
+                          <span className={`text-xs font-semibold px-2 py-0.5 rounded ${
+                            row.violations === 0
+                              ? 'bg-green-50 text-green-600'
+                              : row.violations <= 2
+                              ? 'bg-yellow-50 text-yellow-700'
+                              : 'bg-red-50 text-red-600'
+                          }`}>
+                            {row.violations}
+                          </span>
+                        ) : <span className="text-gray-300 text-xs">—</span>}
+                      </td>
                       <td className="px-3 py-3 text-gray-500 text-xs">
                         {formatDate(row.createdAt)}
                       </td>
@@ -328,7 +376,7 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
                     {/* Expanded verbal question breakdown — horizontal scrollable cards */}
                     {isVerbalExp && verbalCount > 0 && (
                       <tr key={`verbal-${row.id}`} className="bg-orange-50 border-t border-orange-100">
-                        <td colSpan={10} className="px-6 py-4">
+                        <td colSpan={11} className="px-6 py-4">
                           <p className="text-xs font-semibold text-orange-700 mb-3 text-center tracking-wide uppercase">
                             Verbal Question Scores
                           </p>
@@ -432,7 +480,7 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
       {verbalDetailPopup && (
         <div
           className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-[60] p-4"
-          onClick={() => setVerbalDetailPopup(null)}
+          onClick={closeVerbalDetail}
         >
           <div
             className="bg-white rounded-2xl shadow-2xl w-full max-w-md"
@@ -441,7 +489,7 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
               <h4 className="font-bold text-gray-800 text-sm">Verbal Question Detail</h4>
-              <button onClick={() => setVerbalDetailPopup(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+              <button onClick={closeVerbalDetail} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
             </div>
 
             {/* Score */}
@@ -484,6 +532,20 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
               </div>
             )}
 
+            {/* Audio playback */}
+            {verbalDetailPopup.audioPath && (
+              <div className="px-6 py-4 border-b border-gray-100">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Recording</p>
+                {audioLoading ? (
+                  <div className="text-xs text-gray-400 italic">Loading audio…</div>
+                ) : audioObjectUrl ? (
+                  <audio controls src={audioObjectUrl} className="w-full h-10" />
+                ) : (
+                  <div className="text-xs text-red-400 italic">Audio not available</div>
+                )}
+              </div>
+            )}
+
             {/* Timestamps */}
             <div className="px-6 py-3 border-b border-gray-100 flex justify-between text-xs text-gray-400">
               {verbalDetailPopup.initiatedAt && <span>Sent: {new Date(verbalDetailPopup.initiatedAt).toLocaleString()}</span>}
@@ -493,7 +555,7 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
             {/* Footer */}
             <div className="px-6 pb-5 pt-4 flex justify-end">
               <button
-                onClick={() => setVerbalDetailPopup(null)}
+                onClick={closeVerbalDetail}
                 className="px-5 py-2 text-sm bg-slate-800 text-white rounded-lg hover:bg-slate-900 transition"
               >
                 Close

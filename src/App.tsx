@@ -346,6 +346,7 @@ function App() {
       answers,
       questionOrderMap,
       startedAt:        examStartTime,
+      violations,
     };
 
     try {
