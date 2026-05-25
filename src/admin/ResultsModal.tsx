@@ -1,4 +1,103 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+
+/** Custom audio player shown in the verbal detail popup. */
+function AudioPlayer({ src }: { src: string }) {
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [playing, setPlaying]   = useState(false);
+  const [current, setCurrent]   = useState(0);
+  const [duration, setDuration] = useState(0);
+
+  const fmt = (s: number) => {
+    if (!isFinite(s) || isNaN(s)) return '0:00';
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${m}:${sec.toString().padStart(2, '0')}`;
+  };
+
+  // MediaRecorder blobs have duration=Infinity. Seeking to a huge time
+  // forces the browser to clamp to the real end and fire durationchange.
+  useEffect(() => {
+    const a = audioRef.current;
+    if (!a) return;
+    const onMeta = () => {
+      if (!isFinite(a.duration)) {
+        a.currentTime = 1e10;
+      } else {
+        setDuration(a.duration);
+      }
+    };
+    const onDurChange = () => {
+      if (isFinite(a.duration) && a.duration > 0) {
+        setDuration(a.duration);
+        a.currentTime = 0;
+      }
+    };
+    a.addEventListener('loadedmetadata', onMeta);
+    a.addEventListener('durationchange', onDurChange);
+    return () => {
+      a.removeEventListener('loadedmetadata', onMeta);
+      a.removeEventListener('durationchange', onDurChange);
+    };
+  }, [src]);
+
+  const toggle = useCallback(() => {
+    const a = audioRef.current;
+    if (!a) return;
+    playing ? a.pause() : a.play();
+  }, [playing]);
+
+  const seek = (e: React.MouseEvent<HTMLDivElement>) => {
+    const a = audioRef.current;
+    if (!a || !duration) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    a.currentTime = ratio * duration;
+    setCurrent(ratio * duration);
+  };
+
+  const pct = duration > 0 ? (current / duration) * 100 : 0;
+  return (
+    <div className="flex items-center gap-2 bg-gray-100 rounded-full px-3 py-1.5 select-none w-full">
+      <audio
+        ref={audioRef}
+        src={src}
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onEnded={() => { setPlaying(false); setCurrent(0); if (audioRef.current) audioRef.current.currentTime = 0; }}
+        onTimeUpdate={() => { const a = audioRef.current; if (a) setCurrent(a.currentTime); }}
+      />
+
+      {/* Play / Pause */}
+      <button
+        onClick={toggle}
+        className="w-7 h-7 flex-shrink-0 flex items-center justify-center rounded-full bg-black hover:bg-gray-800 text-white transition"
+      >
+        {playing ? (
+          <svg viewBox="0 0 24 24" fill="currentColor" className="w-3 h-3"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+        ) : (
+          <svg viewBox="0 0 24 24" fill="currentColor" className="w-3 h-3"><path d="M8 5v14l11-7z"/></svg>
+        )}
+      </button>
+
+      {/* Current time */}
+      <span className="text-[11px] text-gray-500 font-mono w-8 text-right flex-shrink-0">{fmt(current)}</span>
+
+      {/* Progress bar */}
+      <div
+        className="flex-1 relative h-1 bg-gray-300 rounded-full cursor-pointer"
+        onClick={seek}
+      >
+        <div
+          className="absolute left-0 top-0 h-full bg-gray-800 rounded-full"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+
+      {/* Duration */}
+      <span className="text-[11px] text-gray-500 font-mono w-8 flex-shrink-0">{fmt(duration)}</span>
+    </div>
+  );
+}
 import { adminApi, AiResultRow, ExamRow, ResultRow } from './adminApi';
 import RecordingsModal from './RecordingsModal';
 import { BACKEND_URL } from '../config';
@@ -483,7 +582,7 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
           onClick={closeVerbalDetail}
         >
           <div
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-md"
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col overflow-y-auto"
             onClick={e => e.stopPropagation()}
           >
             {/* Header */}
@@ -539,7 +638,7 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
                 {audioLoading ? (
                   <div className="text-xs text-gray-400 italic">Loading audio…</div>
                 ) : audioObjectUrl ? (
-                  <audio controls src={audioObjectUrl} className="w-full h-10" />
+                  <AudioPlayer src={audioObjectUrl} />
                 ) : (
                   <div className="text-xs text-red-400 italic">Audio not available</div>
                 )}
