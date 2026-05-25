@@ -33,6 +33,8 @@ export interface AiResultRow {
   initiatedAt: string | null;   // ISO datetime
   receivedAt: string | null;    // ISO datetime
   status: 'PENDING' | 'SENT' | 'SUCCESS' | 'FAILED';
+  transcript: string | null;
+  feedback: string | null;
 }
 
 export interface ResultRow {
