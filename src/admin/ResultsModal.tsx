@@ -546,6 +546,25 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
               </div>
             )}
 
+            {/* Transcript */}
+            {verbalDetailPopup.transcript && (
+              <div className="px-6 py-4 border-b border-gray-100">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Transcript</p>
+                <p className="text-sm text-gray-700 leading-relaxed italic">"{verbalDetailPopup.transcript}"</p>
+              </div>
+            )}
+
+            {/* AI Feedback */}
+            {verbalDetailPopup.feedback && (
+              <div className="px-6 py-4 border-b border-gray-100">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">AI Feedback</p>
+                <div className="flex gap-2">
+                  <span className="text-base mt-0.5">💬</span>
+                  <p className="text-sm text-gray-700 leading-relaxed">{verbalDetailPopup.feedback}</p>
+                </div>
+              </div>
+            )}
+
             {/* Timestamps */}
             <div className="px-6 py-3 border-b border-gray-100 flex justify-between text-xs text-gray-400">
               {verbalDetailPopup.initiatedAt && <span>Sent: {new Date(verbalDetailPopup.initiatedAt).toLocaleString()}</span>}
