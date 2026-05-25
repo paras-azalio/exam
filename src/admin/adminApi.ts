@@ -47,6 +47,8 @@ export interface ResultRow {
   startedAt: string | null;  // ISO datetime
   createdAt: string;         // ISO datetime
   checked: boolean;
+  /** Tab-switch / focus-loss violations recorded during the exam. */
+  violations: number | null;
   /** MCQ score + Σ ai_score (SUCCESS verbal rows) — computed server-side. */
   totalScore: number;
   /** MCQ totalMarks + Σ maxMarks (all verbal questions) — computed server-side. */
