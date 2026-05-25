@@ -104,7 +104,7 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
               <div className="grid grid-cols-2 gap-4 mb-4">
                 {rd.showStudentName && (
                   <div>
-                    <p className="text-blue-100 text-sm mb-1">Student Name</p>
+                    <p className="text-blue-100 text-sm mb-1">Candidate Name</p>
                     <p className="text-xl font-semibold">{studentName}</p>
                   </div>
                 )}

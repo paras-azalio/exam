@@ -402,12 +402,12 @@ function App() {
           </div>
           <h2 className="text-lg font-bold text-gray-800 mb-2">Cannot Start Exam</h2>
           <p className="text-sm text-gray-500 mb-6">{jwtError}</p>
-          <button
-            onClick={() => setJwtError('')}
-            className="w-full bg-slate-800 text-white py-2.5 rounded-lg text-sm font-semibold hover:bg-slate-900 transition"
+          <a
+            href={CAREERS_URL}
+            className="block w-full bg-slate-800 text-white py-2.5 rounded-lg text-sm font-semibold hover:bg-slate-900 transition text-center"
           >
-            Go to Login
-          </button>
+            Visit careers page
+          </a>
         </div>
       </div>
     );

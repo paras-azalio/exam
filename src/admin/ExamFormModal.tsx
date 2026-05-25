@@ -225,6 +225,7 @@ export default function ExamFormModal({ initial, active, onActiveChange, onSave,
             <div className="flex gap-6">
               <Check label="Camera & Microphone" checked={f.cameraRecording} onChange={v => set({ cameraRecording: v })} />
               <Check label="Screen Recording" checked={f.screenRecording} onChange={v => set({ screenRecording: v })} />
+              <Check label="Camera PiP on Screen" checked={f.cameraPip} onChange={v => set({ cameraPip: v })} />
             </div>
           </Section>
 
@@ -253,7 +254,7 @@ export default function ExamFormModal({ initial, active, onActiveChange, onSave,
           {/* ── Result Display ── */}
           <Section title="Result Display">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <Check label="Show Student Name" checked={f.showStudentName} onChange={v => set({ showStudentName: v })} />
+              <Check label="Show Candidate Name" checked={f.showStudentName} onChange={v => set({ showStudentName: v })} />
               <Check label="Show Exam Code" checked={f.showExamCode} onChange={v => set({ showExamCode: v })} />
               <Check label="Show Score" checked={f.showScore} onChange={v => set({ showScore: v })} />
               <Check label="Show Total Marks" checked={f.showTotalMarks} onChange={v => set({ showTotalMarks: v })} />

@@ -39,6 +39,7 @@ export interface GradeRule {
 export interface RecordingConfig {
   camera?: boolean;
   screen?: boolean;
+  cameraPip?: boolean;
 }
 
 export interface ResultDisplayConfig {

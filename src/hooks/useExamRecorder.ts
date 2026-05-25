@@ -276,5 +276,6 @@ export const useExamRecorder = (sessionKey: string | null) => {
     screenError,
     setCameraError,
     setScreenError,
+    cameraStream,   // exposed so callers can attach stream to a <video> for PiP preview
   };
 };

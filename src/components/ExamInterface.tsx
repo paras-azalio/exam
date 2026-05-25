@@ -66,7 +66,9 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   violations,
 }) => {
   const recording     = examData.recording ?? {};
-  const needsRecording = !!(recording.camera || recording.screen);
+  // cameraPip implies camera recording must be active even if recording.camera is off
+  const cameraActive   = !!(recording.camera || recording.cameraPip);
+  const needsRecording = !!(cameraActive || recording.screen);
 
   // Sections are NOT available at mount — they're fetched when the exam starts.
   const [activeSections, setActiveSections] = useState<Section[]>([]);
@@ -85,6 +87,7 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
 
   // Verbal audio blobs: questionId → recorded Blob (set by VerbalRecorder inside QuestionDisplay)
   const verbalBlobsRef = useRef<Map<string, Blob>>(new Map());
+  const pipVideoRef    = useRef<HTMLVideoElement>(null);
 
   // Tracks questionIds whose audio was already successfully uploaded to the server
   // at recording-completion time — skip re-uploading these at submit.
@@ -131,7 +134,7 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
     return needsRecording ? 'setup' : 'disclaimer';
   };
   const [examPhase, setExamPhase]       = useState<'jd' | 'setup' | 'disclaimer' | 'active'>(initialPhase);
-  const [cameraReady, setCameraReady]   = useState(!recording.camera);
+  const [cameraReady, setCameraReady]   = useState(!cameraActive);
   const [screenReady, setScreenReady]   = useState(!recording.screen);
   const [disclaimerAgreed, setDisclaimerAgreed] = useState(false);
   const [isLoadingQuestions, setIsLoadingQuestions] = useState(false);
@@ -194,6 +197,7 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
     screenError,
     setCameraError,
     setScreenError,
+    cameraStream,
   } = useExamRecorder(sessionKey);
 
   // ── Verbal auto-start: VerbalRecorder handles its own countdown internally.
@@ -365,6 +369,17 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
     return () => clearInterval(interval);
   }, [currentQuestionIndex, examPhase, verbalRecordingStarted]);
 
+  // ── Camera PiP: wire stream to <video> whenever cameraStream becomes available ─
+  useEffect(() => {
+    if (!recording.cameraPip || !pipVideoRef.current) return;
+    const video = pipVideoRef.current;
+    const stream = cameraStream.current;
+    if (stream && video.srcObject !== stream) {
+      video.srcObject = stream;
+      video.play().catch(() => {});
+    }
+  });   // runs every render so it picks up the stream as soon as it is set
+
   // ── Setup phase handlers ─────────────────────────────────────────────────────
 
   const handleStartCamera = async () => {
@@ -524,7 +539,7 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
           </div>
 
           <div className="space-y-4 mb-8">
-            {recording.camera && (
+            {cameraActive && (
               <div className={`flex items-center gap-4 p-4 rounded-lg border-2 transition ${
                 cameraReady ? 'border-green-400 bg-green-50' : 'border-gray-200'
               }`}>
@@ -644,7 +659,7 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
       { title: 'You can click on hide button next to stop screen share', desc: 'Dont click on stop screen sharing as you might get disqualified.' },
       { title: 'No Right-Click',             desc: 'Right-clicking is disabled for the duration of the exam.' },
       { title: 'No Page Refresh',            desc: 'Refreshing the page (F5 / Ctrl+R) is blocked. It may cause loss of your answers.' },
-      ...(recording.camera ? [{ title: 'Camera & Microphone Recording', desc: 'Your webcam and audio are being recorded throughout the exam.' }] : []),
+      ...(cameraActive ? [{ title: 'Camera & Microphone Recording', desc: 'Your webcam and audio are being recorded throughout the exam.' }] : []),
       ...(recording.screen ? [{ title: 'Screen Recording', desc: 'Your entire screen is being recorded throughout the exam.' }] : []),
       { title: `${maxV} Violations = Auto-Submit`, desc: `Reaching ${maxV} violations will automatically submit your exam.` },
     ];
@@ -760,16 +775,34 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
         {studentName}
       </div>
 
+      {/* Camera PiP overlay — shown during exam when cameraPip is enabled */}
+      {recording.cameraPip && cameraActive && cameraReady && (
+        <div className="fixed bottom-4 right-4 z-50 rounded-xl overflow-hidden shadow-2xl border-2 border-white border-opacity-80"
+          style={{ width: '180px', aspectRatio: '4/3' }}>
+          <video
+            ref={pipVideoRef}
+            autoPlay
+            muted
+            playsInline
+            className="w-full h-full object-cover scale-x-[-1]"
+          />
+          <div className="absolute bottom-1 left-1 bg-black bg-opacity-50 text-white text-[10px] px-1.5 py-0.5 rounded-full flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse inline-block" />
+            CAM
+          </div>
+        </div>
+      )}
+
       <div className="relative z-10">
         {/* Header */}
         <div className="bg-white shadow-md border-b border-gray-200">
           <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between flex-wrap gap-3">
             <div>
               <h1 className="text-xl font-bold text-gray-800">{examData.examTitle}</h1>
-              <p className="text-sm text-gray-600">Student: {studentName} | Code: {examData.examCode}</p>
+              <p className="text-sm text-gray-600">Candidate: {studentName} | Code: {examData.examCode}</p>
             </div>
             <div className="flex items-center gap-4 flex-wrap">
-              {recording.camera && (
+              {cameraActive && (
                 <div className="flex items-center gap-1.5 text-xs text-gray-600">
                   <span className={`w-2 h-2 rounded-full ${cameraReady ? 'bg-red-500 animate-pulse' : 'bg-gray-400'}`} />
                   {cameraReady ? 'Cam REC' : 'Cam Off'}

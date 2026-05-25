@@ -467,14 +467,19 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
       </div>
 
       {/* Recordings sub-modal */}
-      {recordingsRow && (
-        <RecordingsModal
-          creds={creds}
-          result={recordingsRow}
-          examCode={exam.examCode}
-          onClose={() => setRecordingsRow(null)}
-        />
-      )}
+      {recordingsRow && (() => {
+        let cameraPip = false;
+        try { cameraPip = JSON.parse(exam.examData)?.recording?.cameraPip === true; } catch { /* ignore */ }
+        return (
+          <RecordingsModal
+            creds={creds}
+            result={recordingsRow}
+            examCode={exam.examCode}
+            cameraPip={cameraPip}
+            onClose={() => setRecordingsRow(null)}
+          />
+        );
+      })()}
 
       {/* Verbal question detail popup */}
       {verbalDetailPopup && (

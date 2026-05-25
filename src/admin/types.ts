@@ -46,6 +46,7 @@ export interface ExamFormState {
   maxViolations: number;
   cameraRecording: boolean;
   screenRecording: boolean;
+  cameraPip: boolean;
   grading: GradeForm[];
   showStudentName: boolean;
   showExamCode: boolean;
@@ -107,6 +108,7 @@ export const defaultForm = (): ExamFormState => ({
   maxViolations: 5,
   cameraRecording: true,
   screenRecording: true,
+  cameraPip: false,
   grading: DEFAULT_GRADING,
   showStudentName: true,
   showExamCode: true,
@@ -130,7 +132,7 @@ export function formToJson(f: ExamFormState): object {
     canNavigate: f.canNavigate,
     submissionType: f.submissionType,
     maxViolations: f.maxViolations,
-    recording: { camera: f.cameraRecording, screen: f.screenRecording },
+    recording: { camera: f.cameraRecording, screen: f.screenRecording, ...(f.cameraPip ? { cameraPip: true } : {}) },
     grading: f.grading,
     resultDisplay: {
       showStudentName: f.showStudentName,
@@ -200,6 +202,7 @@ export function jsonToForm(raw: string): ExamFormState {
     maxViolations: j.maxViolations ?? 5,
     cameraRecording: j.recording?.camera ?? false,
     screenRecording: j.recording?.screen ?? false,
+    cameraPip: j.recording?.cameraPip ?? false,
     grading: j.grading ?? DEFAULT_GRADING,
     showStudentName: j.resultDisplay?.showStudentName ?? true,
     showExamCode: j.resultDisplay?.showExamCode ?? true,
