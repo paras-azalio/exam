@@ -142,7 +142,7 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
       case 'studentEmail': return row.studentEmail ?? '';
       case 'totalScore':   return row.totalScore;
       case 'score':        return row.score ?? -Infinity;
-      case 'verbalResult': return row.aiResults.reduce((s, ar) => s + (ar.aiScore ?? 0), 0) || -Infinity;
+      case 'verbalResult': return (row.aiResults ?? []).reduce((s, ar) => s + (ar.aiScore ?? 0), 0) || -Infinity;
       case 'grade':        return row.grade ?? '';
       case 'timeTaken':    return timeTakenSeconds(row) ?? -1;
       case 'createdAt':    return row.createdAt ?? '';
@@ -291,7 +291,7 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
                         <div className="flex flex-col gap-0.5">
                           <div className="flex items-baseline gap-1">
                             <span className="font-bold text-sm text-white bg-slate-700 px-2 py-0.5 rounded">
-                              {row.totalScore.toFixed(2)}
+                              {(row.totalScore ?? row.score ?? 0).toFixed(2)}
                             </span>
                             {totalMax > 0 && (
                               <span className="text-gray-500 text-xs">/ {totalMax}</span>
