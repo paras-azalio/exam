@@ -57,9 +57,14 @@ export default function ExamFormModal({ initial, active, onActiveChange, onSave,
           const filled = q.options.filter(o => o.text.trim());
           if (filled.length < 2) return 'MCQ questions need at least 2 options.';
           if (q.correctAnswer.length === 0) return 'Mark at least one correct answer per MCQ question.';
-        } else {
+        } else if (q.type === 'subjective') {
           if (q.correctAnswer.length === 0 || !q.correctAnswer[0]?.trim())
             return 'Subjective questions need at least one acceptable answer.';
+        } else if (q.type === 'verbal') {
+          if (!q.maxDuration || Number(q.maxDuration) <= 0)
+            return 'Verbal questions need a recording duration > 0.';
+          if (!q.expectedReply.trim())
+            return 'Verbal questions need an expected reply for evaluation.';
         }
       }
     }
@@ -380,8 +385,11 @@ function QuestionCard({ q, index, expanded, onToggle, onUpdate, onRemove, onUpda
         <span className="text-gray-400 text-xs w-4">{expanded ? '▾' : '▸'}</span>
         <span className="text-xs font-semibold text-gray-500 w-6">Q{index + 1}</span>
         <span className="flex-1 text-sm text-gray-700 truncate">{q.question || <em className="text-gray-400">No text yet</em>}</span>
-        <span className={`text-xs px-1.5 py-0.5 rounded ${q.type === 'mcq' ? 'bg-blue-50 text-blue-600' : 'bg-purple-50 text-purple-600'}`}>
-          {q.type === 'mcq' ? (q.multipleChoice ? 'MCQ-M' : 'MCQ') : 'SUB'}
+        <span className={`text-xs px-1.5 py-0.5 rounded ${
+          q.type === 'mcq' ? 'bg-blue-50 text-blue-600'
+          : q.type === 'verbal' ? 'bg-orange-50 text-orange-600'
+          : 'bg-purple-50 text-purple-600'}`}>
+          {q.type === 'mcq' ? (q.multipleChoice ? 'MCQ-M' : 'MCQ') : q.type === 'verbal' ? 'VERBAL' : 'SUB'}
         </span>
         <span className="text-xs text-gray-400">{q.marks}M</span>
         <button onClick={e => { e.stopPropagation(); onRemove(); }}
@@ -392,14 +400,14 @@ function QuestionCard({ q, index, expanded, onToggle, onUpdate, onRemove, onUpda
       {expanded && (
         <div className="px-4 py-4 border-t border-gray-100 space-y-4 bg-gray-50">
           {/* Type selector */}
-          <div className="flex gap-4 items-center">
+          <div className="flex gap-4 items-center flex-wrap">
             <span className="text-xs font-medium text-gray-600">Type:</span>
-            {(['mcq', 'subjective'] as const).map(t => (
+            {(['mcq', 'subjective', 'verbal'] as const).map(t => (
               <label key={t} className="text-sm cursor-pointer">
                 <input type="radio" name={`type_${q._key}`} value={t} checked={q.type === t}
                   onChange={() => onUpdate({ type: t, correctAnswer: [] })}
                   className="mr-1 accent-slate-700" />
-                {t === 'mcq' ? 'Multiple Choice' : 'Subjective'}
+                {t === 'mcq' ? 'Multiple Choice' : t === 'subjective' ? 'Subjective' : 'Verbal'}
               </label>
             ))}
           </div>
@@ -481,6 +489,61 @@ function QuestionCard({ q, index, expanded, onToggle, onUpdate, onRemove, onUpda
                   className="text-xs text-slate-600 border border-dashed border-gray-300 rounded px-3 py-1 hover:bg-white transition">
                   + Option
                 </button>
+              </div>
+            </div>
+          )}
+
+          {/* Verbal settings */}
+          {q.type === 'verbal' && (
+            <div className="space-y-3">
+              <div className="flex gap-3 flex-wrap">
+                <label className="block">
+                  <span className="text-xs font-medium text-gray-600 block mb-0.5">Recording Duration (sec)</span>
+                  <input type="number" value={q.maxDuration} min={5} placeholder="60"
+                    onChange={e => onUpdate({ maxDuration: e.target.value })}
+                    className="w-28 px-2 py-1.5 text-sm border border-gray-300 rounded-lg outline-none" />
+                </label>
+                <label className="block">
+                  <span className="text-xs font-medium text-gray-600 block mb-0.5">Auto-Start Delay (sec)</span>
+                  <input type="number" value={q.autoStartDelay} min={0} placeholder="0 = manual"
+                    onChange={e => onUpdate({ autoStartDelay: e.target.value })}
+                    className="w-28 px-2 py-1.5 text-sm border border-gray-300 rounded-lg outline-none" />
+                  <span className="text-xs text-gray-400 block mt-0.5">0 = manual start only</span>
+                </label>
+                <label className="block">
+                  <span className="text-xs font-medium text-gray-600 block mb-0.5">AI Precision level (1–5)</span>
+                  <input type="number" value={q.precision} min={1} max={5}
+                    onChange={e => onUpdate({ precision: Math.min(5, Math.max(1, Number(e.target.value))) })}
+                    className="w-20 px-2 py-1.5 text-sm border border-gray-300 rounded-lg outline-none" />
+                  <span className="text-xs text-gray-400 block mt-0.5">1 lenient → 5 strict</span>
+                </label>
+                <label className="block self-start pt-1">
+                  <span className="text-xs font-medium text-gray-600 block mb-1.5">Allow Re-record</span>
+                  <button
+                    type="button"
+                    onClick={() => onUpdate({ allowRerecord: !q.allowRerecord })}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                      q.allowRerecord ? 'bg-orange-500' : 'bg-gray-300'
+                    }`}
+                  >
+                    <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                      q.allowRerecord ? 'translate-x-6' : 'translate-x-1'
+                    }`} />
+                  </button>
+                  <span className="text-xs text-gray-400 block mt-0.5">
+                    {q.allowRerecord ? 'Manual submit' : 'Auto-upload'}
+                  </span>
+                </label>
+              </div>
+              <div>
+                <span className="text-xs font-medium text-gray-600 block mb-1">
+                  Expected Reply
+                  <span className="ml-1 text-gray-400 font-normal">(For referencing purpose)</span>
+                </span>
+                <textarea value={q.expectedReply}
+                  onChange={e => onUpdate({ expectedReply: e.target.value })}
+                  rows={3} placeholder="Describe the ideal answer the AI should evaluate against…"
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg outline-none focus:ring-1 focus:ring-slate-400 resize-none" />
               </div>
             </div>
           )}
