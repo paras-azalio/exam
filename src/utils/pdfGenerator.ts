@@ -163,11 +163,14 @@ export const generatePDF = (
 
 // ── Admin PDF: generated from ResultRow (has verbal AI scores, no per-question MCQ detail) ──
 export interface AdminPDFVerbalRow {
-  questionId: string;
-  question:   string;
-  aiScore:    number | null;
-  maxMarks:   number | null;
-  status:     string;
+  questionId:    string;
+  question:      string;
+  expectedReply?: string | null;
+  aiScore:       number | null;
+  maxMarks:      number | null;
+  status:        string;
+  transcript?:   string | null;
+  feedback?:     string | null;
 }
 
 export const generateAdminPDF = (
@@ -221,6 +224,21 @@ export const generateAdminPDF = (
             <span class="q-marks">${scoreText}</span>
           </div>
           <p class="q-text">${r.question}</p>
+          ${r.expectedReply ? `
+          <div class="subj-answers" style="margin-bottom:8px">
+            <div><strong>Expected Reply:</strong> ${r.expectedReply}</div>
+          </div>` : ''}
+          ${r.transcript ? `
+          <div class="verbal-transcript">
+            <div class="vt-label">🎤 Candidate's Answer (Transcript)</div>
+            <div class="vt-text">"${r.transcript}"</div>
+          </div>` : `
+          <div class="verbal-transcript" style="color:#9ca3af;font-style:italic;font-size:13px">No transcript available</div>`}
+          ${r.feedback ? `
+          <div class="verbal-feedback">
+            <div class="vf-label">💬 AI Feedback</div>
+            <div class="vf-text">${r.feedback}</div>
+          </div>` : ''}
         </div>`;
     }).join('');
 
@@ -274,6 +292,12 @@ function buildHtml(examCode: string, candidateName: string, headerHTML: string, 
     .incorrect { color: red;     font-weight: bold; }
     .verbal    { color: #ea580c; font-weight: bold; }
     .verbal-block { border-color: #f97316; }
+    .verbal-transcript { background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:10px 14px;margin:8px 0;font-size:14px; }
+    .vt-label { font-size:11px;font-weight:700;color:#d97706;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px; }
+    .vt-text  { color:#374151;font-style:italic;line-height:1.7; }
+    .verbal-feedback { background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:10px 14px;margin:8px 0;font-size:14px; }
+    .vf-label { font-size:11px;font-weight:700;color:#16a34a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px; }
+    .vf-text  { color:#374151;line-height:1.7; }
 
     @media print { body { padding: 20px; } }
   `;

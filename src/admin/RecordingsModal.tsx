@@ -250,11 +250,14 @@ export default function RecordingsModal({ creds, result, examCode, onClose }: Pr
       result.totalMaxMarks,
       result.grade,
       result.aiResults.map(ar => ({
-        questionId: ar.questionId,
-        question:   ar.question,
-        aiScore:    ar.aiScore,
-        maxMarks:   ar.maxMarks,
-        status:     ar.status,
+        questionId:    ar.questionId,
+        question:      ar.question,
+        expectedReply: ar.expectedReply,
+        aiScore:       ar.aiScore,
+        maxMarks:      ar.maxMarks,
+        status:        ar.status,
+        transcript:    ar.transcript,
+        feedback:      ar.feedback,
       }))
     );
   };

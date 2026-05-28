@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { adminApi, AiResultRow, ExamRow, ResultRow } from './adminApi';
 import RecordingsModal from './RecordingsModal';
 import { BACKEND_URL } from '../config';
+import { generateExamReport } from './examReportGenerator';
 
 /** Returns true when a verbal AI row is eligible for retry in the admin UI. */
 function isRetryEligible(ar: AiResultRow): boolean {
@@ -189,7 +190,18 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
               )}
             </p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+          <div className="flex items-center gap-3">
+            {!loading && !error && rows.length > 0 && (
+              <button
+                onClick={() => generateExamReport(exam, rows)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg transition"
+                title="Download full HTML report"
+              >
+                ⬇ Download Report
+              </button>
+            )}
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+          </div>
         </div>
 
         {/* Body */}
