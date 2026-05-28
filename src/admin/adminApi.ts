@@ -33,6 +33,8 @@ export interface AiResultRow {
   initiatedAt: string | null;   // ISO datetime
   receivedAt: string | null;    // ISO datetime
   status: 'PENDING' | 'SENT' | 'SUCCESS' | 'FAILED';
+  transcript: string | null;
+  feedback: string | null;
 }
 
 export interface ResultRow {
@@ -47,6 +49,8 @@ export interface ResultRow {
   startedAt: string | null;  // ISO datetime
   createdAt: string;         // ISO datetime
   checked: boolean;
+  /** Tab-switch / focus-loss violations recorded during the exam. */
+  violations: number | null;
   /** MCQ score + Σ ai_score (SUCCESS verbal rows) — computed server-side. */
   totalScore: number;
   /** MCQ totalMarks + Σ maxMarks (all verbal questions) — computed server-side. */
