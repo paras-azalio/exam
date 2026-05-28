@@ -503,96 +503,104 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
           onClick={closeVerbalDetail}
         >
           <div
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-md"
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col"
             onClick={e => e.stopPropagation()}
           >
-            {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-              <h4 className="font-bold text-gray-800 text-sm">Verbal Question Detail</h4>
-              <button onClick={closeVerbalDetail} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
-            </div>
-
-            {/* Score */}
-            <div className="px-6 pt-5 pb-4 text-center border-b border-gray-100">
-              {verbalDetailPopup.status === 'SUCCESS' ? (
-                <>
-                  <p className="text-4xl font-bold text-orange-700">
+            {/* ── Fixed header ── */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <h4 className="font-bold text-gray-800 text-sm">Verbal Question Detail</h4>
+                {/* Score pill always visible in header */}
+                {verbalDetailPopup.status === 'SUCCESS' && verbalDetailPopup.aiScore != null && (
+                  <span className="text-sm font-bold text-orange-700 bg-orange-50 border border-orange-200 px-2.5 py-0.5 rounded-full">
                     {Number(verbalDetailPopup.aiScore).toFixed(2)}
                     {verbalDetailPopup.maxMarks != null && verbalDetailPopup.maxMarks > 0 && (
-                      <span className="text-2xl text-gray-400 font-normal"> / {verbalDetailPopup.maxMarks}</span>
-                    )}
-                  </p>
-                  <p className="text-sm text-gray-400 mt-1">pts</p>
-                </>
-              ) : (
-                <p className="text-2xl font-semibold text-gray-400">
-                  {verbalDetailPopup.status === 'FAILED' ? '⚠ Failed' :
-                   verbalDetailPopup.status === 'SENT'   ? '⏳ Evaluating…' : '⏳ Pending'}
-                  {verbalDetailPopup.maxMarks ? ` / ${verbalDetailPopup.maxMarks} pts` : ''}
-                </p>
-              )}
-              {verbalDetailPopup.precisionLevel != null && (
-                <span className="inline-block mt-2 text-xs bg-gray-100 text-gray-500 px-3 py-0.5 rounded-full">
-                  Precision {verbalDetailPopup.precisionLevel}
-                </span>
-              )}
-            </div>
-
-            {/* Question */}
-            <div className="px-6 py-4 border-b border-gray-100">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Question</p>
-              <p className="text-sm text-gray-700 leading-relaxed">{verbalDetailPopup.question}</p>
-            </div>
-
-            {/* Expected reply */}
-            {verbalDetailPopup.expectedReply && (
-              <div className="px-6 py-4 border-b border-gray-100">
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Expected Reply</p>
-                <p className="text-xs text-gray-500 leading-relaxed">{verbalDetailPopup.expectedReply}</p>
-              </div>
-            )}
-
-            {/* Audio playback */}
-            {verbalDetailPopup.audioPath && (
-              <div className="px-6 py-4 border-b border-gray-100">
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Recording</p>
-                {audioLoading ? (
-                  <div className="text-xs text-gray-400 italic">Loading audio…</div>
-                ) : audioObjectUrl ? (
-                  <audio controls src={audioObjectUrl} className="w-full h-10" />
-                ) : (
-                  <div className="text-xs text-red-400 italic">Audio not available</div>
+                      <span className="text-gray-400 font-normal"> / {verbalDetailPopup.maxMarks}</span>
+                    )} pts
+                  </span>
+                )}
+                {verbalDetailPopup.precisionLevel != null && (
+                  <span className="text-xs bg-gray-100 text-gray-500 px-2.5 py-0.5 rounded-full">
+                    Precision {verbalDetailPopup.precisionLevel}
+                  </span>
                 )}
               </div>
-            )}
-
-            {/* Transcript */}
-            {verbalDetailPopup.transcript && (
-              <div className="px-6 py-4 border-b border-gray-100">
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Transcript</p>
-                <p className="text-sm text-gray-700 leading-relaxed italic">"{verbalDetailPopup.transcript}"</p>
-              </div>
-            )}
-
-            {/* AI Feedback */}
-            {verbalDetailPopup.feedback && (
-              <div className="px-6 py-4 border-b border-gray-100">
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">AI Feedback</p>
-                <div className="flex gap-2">
-                  <span className="text-base mt-0.5">💬</span>
-                  <p className="text-sm text-gray-700 leading-relaxed">{verbalDetailPopup.feedback}</p>
-                </div>
-              </div>
-            )}
-
-            {/* Timestamps */}
-            <div className="px-6 py-3 border-b border-gray-100 flex justify-between text-xs text-gray-400">
-              {verbalDetailPopup.initiatedAt && <span>Sent: {new Date(verbalDetailPopup.initiatedAt).toLocaleString()}</span>}
-              {verbalDetailPopup.receivedAt  && <span>Received: {new Date(verbalDetailPopup.receivedAt).toLocaleString()}</span>}
+              <button onClick={closeVerbalDetail} className="text-gray-400 hover:text-gray-600 text-xl leading-none flex-shrink-0 ml-3">✕</button>
             </div>
 
-            {/* Footer */}
-            <div className="px-6 pb-5 pt-4 flex justify-end">
+            {/* ── Scrollable body ── */}
+            <div className="flex-1 overflow-y-auto divide-y divide-gray-100">
+
+              {/* Status (non-success only) */}
+              {verbalDetailPopup.status !== 'SUCCESS' && (
+                <div className="px-6 py-4 text-center">
+                  <p className="text-xl font-semibold text-gray-400">
+                    {verbalDetailPopup.status === 'FAILED' ? '⚠ Failed' :
+                     verbalDetailPopup.status === 'SENT'   ? '⏳ Evaluating…' : '⏳ Pending'}
+                    {verbalDetailPopup.maxMarks ? ` / ${verbalDetailPopup.maxMarks} pts` : ''}
+                  </p>
+                </div>
+              )}
+
+              {/* Question */}
+              <div className="px-6 py-4">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Question</p>
+                <p className="text-sm text-gray-700 leading-relaxed">{verbalDetailPopup.question}</p>
+              </div>
+
+              {/* Expected reply */}
+              {verbalDetailPopup.expectedReply && (
+                <div className="px-6 py-4">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Expected Reply</p>
+                  <p className="text-xs text-gray-500 leading-relaxed whitespace-pre-line">{verbalDetailPopup.expectedReply}</p>
+                </div>
+              )}
+
+              {/* Audio playback */}
+              {verbalDetailPopup.audioPath && (
+                <div className="px-6 py-4">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Recording</p>
+                  {audioLoading ? (
+                    <div className="text-xs text-gray-400 italic">Loading audio…</div>
+                  ) : audioObjectUrl ? (
+                    <audio controls src={audioObjectUrl} className="w-full h-10" />
+                  ) : (
+                    <div className="text-xs text-red-400 italic">Audio not available</div>
+                  )}
+                </div>
+              )}
+
+              {/* Transcript */}
+              {verbalDetailPopup.transcript && (
+                <div className="px-6 py-4 bg-amber-50">
+                  <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide mb-2">Transcript</p>
+                  <p className="text-sm text-gray-700 leading-relaxed italic">"{verbalDetailPopup.transcript}"</p>
+                </div>
+              )}
+
+              {/* AI Feedback */}
+              {verbalDetailPopup.feedback && (
+                <div className="px-6 py-4 bg-green-50">
+                  <p className="text-xs font-semibold text-green-600 uppercase tracking-wide mb-2">AI Feedback</p>
+                  <div className="flex gap-2">
+                    <span className="text-base mt-0.5 flex-shrink-0">💬</span>
+                    <p className="text-sm text-gray-700 leading-relaxed">{verbalDetailPopup.feedback}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Timestamps */}
+              {(verbalDetailPopup.initiatedAt || verbalDetailPopup.receivedAt) && (
+                <div className="px-6 py-3 flex flex-wrap gap-4 text-xs text-gray-400">
+                  {verbalDetailPopup.initiatedAt && <span>Sent: {new Date(verbalDetailPopup.initiatedAt).toLocaleString()}</span>}
+                  {verbalDetailPopup.receivedAt  && <span>Received: {new Date(verbalDetailPopup.receivedAt).toLocaleString()}</span>}
+                </div>
+              )}
+
+            </div>
+
+            {/* ── Fixed footer ── */}
+            <div className="px-6 py-3 border-t border-gray-100 flex justify-end flex-shrink-0">
               <button
                 onClick={closeVerbalDetail}
                 className="px-5 py-2 text-sm bg-slate-800 text-white rounded-lg hover:bg-slate-900 transition"
