@@ -25,7 +25,14 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
   const hasAnyDisplay = Object.values(rd).some((v) => v === true);
 
   const handleDownloadPDF = () => {
-    generatePDF(examData, studentName, score, totalMarks, details);
+    generatePDF(
+      examData,
+      studentName,
+      score,
+      totalMarks,
+      details,
+      examData.resultDisplay?.pdfMode ?? 'summary'
+    );
   };
 
   const getGrade = (percent: number): string => {
@@ -149,36 +156,49 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
           <>
             <div className="bg-gray-50 rounded-xl p-6 mb-6">
               <h2 className="text-xl font-bold text-gray-800 mb-4">Performance Summary</h2>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                <div className="text-center">
-                  <p className="text-2xl font-bold text-gray-800">
-                    {details.filter((d) => d.correct).length}
-                  </p>
-                  <p className="text-sm text-gray-600">Correct</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-2xl font-bold text-gray-800">
-                    {details.filter((d) => !d.correct && d.marksAwarded < 0).length}
-                  </p>
-                  <p className="text-sm text-gray-600">Incorrect</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-2xl font-bold text-gray-800">
-                    {details.filter((d) => d.marksAwarded === 0 && !d.correct).length}
-                  </p>
-                  <p className="text-sm text-gray-600">Unattempted</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-2xl font-bold text-gray-800">{percentage.toFixed(1)}%</p>
-                  <p className="text-sm text-gray-600">Percentage</p>
-                </div>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
-                <div
-                  className="bg-gradient-to-r from-green-500 to-green-600 h-full transition-all duration-1000"
-                  style={{ width: `${Math.min(percentage, 100)}%` }}
-                />
-              </div>
+              {/* Verbal questions are scored asynchronously — exclude from MCQ counters */}
+              {(() => {
+                const mcq     = details.filter((d) => d.questionType !== 'verbal');
+                const verbal  = details.filter((d) => d.questionType === 'verbal');
+                const correct = mcq.filter((d) => d.correct).length;
+                const wrong   = mcq.filter((d) => !d.correct && d.marksAwarded < 0).length;
+                const skip    = mcq.filter((d) => d.marksAwarded === 0 && !d.correct).length;
+                const cols    = verbal.length > 0 ? 5 : 4;
+                return (
+                  <>
+                    <div className={`grid grid-cols-2 md:grid-cols-${cols} gap-4 mb-4`}>
+                      <div className="text-center">
+                        <p className="text-2xl font-bold text-green-600">{correct}</p>
+                        <p className="text-sm text-gray-600">Correct</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-2xl font-bold text-red-500">{wrong}</p>
+                        <p className="text-sm text-gray-600">Incorrect</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-2xl font-bold text-gray-500">{skip}</p>
+                        <p className="text-sm text-gray-600">Unattempted</p>
+                      </div>
+                      {verbal.length > 0 && (
+                        <div className="text-center">
+                          <p className="text-2xl font-bold text-orange-500">{verbal.length}</p>
+                          <p className="text-sm text-gray-600">Verbal</p>
+                        </div>
+                      )}
+                      <div className="text-center">
+                        <p className="text-2xl font-bold text-gray-800">{percentage.toFixed(1)}%</p>
+                        <p className="text-sm text-gray-600">MCQ %</p>
+                      </div>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
+                      <div
+                        className="bg-gradient-to-r from-green-500 to-green-600 h-full transition-all duration-1000"
+                        style={{ width: `${Math.min(percentage, 100)}%` }}
+                      />
+                    </div>
+                  </>
+                );
+              })()}
             </div>
 
             <div className="max-h-64 overflow-y-auto bg-gray-50 rounded-xl p-4 mb-6">
@@ -191,16 +211,18 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
                   >
                     <span className="font-medium text-gray-700">Question {detail.questionNumber}</span>
                     <div className="flex items-center gap-4">
-                      <span
-                        className={`font-semibold ${
-                          detail.correct ? 'text-green-600' : 'text-red-600'
-                        }`}
-                      >
-                        {detail.correct ? '✓ Correct' : '✗ Incorrect'}
-                      </span>
+                      {detail.questionType === 'verbal' ? (
+                        <span className="font-semibold text-orange-600">Verbal — Audio Recorded</span>
+                      ) : (
+                        <span className={`font-semibold ${detail.correct ? 'text-green-600' : 'text-red-600'}`}>
+                          {detail.correct ? '✓ Correct' : '✗ Incorrect'}
+                        </span>
+                      )}
                       <span className="text-gray-600">
-                        {detail.marksAwarded >= 0 ? '+' : ''}
-                        {detail.marksAwarded.toFixed(2)} / {detail.totalMarks}
+                        {detail.questionType === 'verbal'
+                          ? `— / ${detail.totalMarks}`
+                          : `${detail.marksAwarded >= 0 ? '+' : ''}${detail.marksAwarded.toFixed(2)} / ${detail.totalMarks}`
+                        }
                       </span>
                     </div>
                   </div>

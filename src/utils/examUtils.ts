@@ -1,8 +1,12 @@
-import { ExamData, Answer, Question } from '../types/exam';
+import { ExamData, Section } from '../types/exam';
+import { BACKEND_URL } from '../config';
 
+const API_BASE = BACKEND_URL;
+
+/** Fetch exam metadata (no questions/sections). */
 export const loadExamData = async (examCode: string): Promise<ExamData | null> => {
   try {
-    const response = await fetch(`/exams/${examCode}.json`);
+    const response = await fetch(`${API_BASE}/api/exam/${examCode}`);
     if (!response.ok) return null;
     return await response.json();
   } catch (error) {
@@ -11,76 +15,30 @@ export const loadExamData = async (examCode: string): Promise<ExamData | null> =
   }
 };
 
-export const calculateScore = (
-  examData: ExamData,
-  answers: Answer[]
-): { score: number; totalMarks: number; details: any[] } => {
-  let score = 0;
-  let totalMarks = 0;
-  const details: any[] = [];
-
-  examData.sections.forEach((section) => {
-    section.questions.forEach((question) => {
-      totalMarks += question.marks;
-      const userAnswer = answers.find((a) => a.questionId === question.id);
-
-      if (!userAnswer) {
-        details.push({
-          questionId: question.id,
-          questionNumber: question.number,
-          correct: false,
-          marksAwarded: 0,
-          totalMarks: question.marks,
-        });
-        return;
-      }
-
-      const isCorrect = checkAnswer(question, userAnswer.answer);
-
-      if (isCorrect) {
-        score += question.marks;
-        details.push({
-          questionId: question.id,
-          questionNumber: question.number,
-          correct: true,
-          marksAwarded: question.marks,
-          totalMarks: question.marks,
-        });
-      } else {
-        const penalty = question.negativeMarks || 0;
-        score -= penalty;
-        details.push({
-          questionId: question.id,
-          questionNumber: question.number,
-          correct: false,
-          marksAwarded: -penalty,
-          totalMarks: question.marks,
-        });
-      }
+/**
+ * Fetch exam sections (questions + options, no correct answers).
+ * Requires the student's JWT invite token — only called when the exam actually starts,
+ * so questions are never visible in the network tab during setup/disclaimer phases.
+ */
+export const loadExamQuestions = async (
+  examCode: string,
+  jwtToken: string,
+): Promise<Section[] | null> => {
+  try {
+    const response = await fetch(`${API_BASE}/api/exam/${examCode}/questions`, {
+      headers: { Authorization: `Bearer ${jwtToken}` },
     });
-  });
-
-  return { score: Math.max(0, score), totalMarks, details };
-};
-
-const checkAnswer = (question: Question, userAnswer: string | string[]): boolean => {
-  if (question.type === 'mcq') {
-    if (question.multipleChoice) {
-      const userAns = Array.isArray(userAnswer) ? userAnswer.sort() : [userAnswer].sort();
-      const correctAns = question.correctAnswer.sort();
-      return JSON.stringify(userAns) === JSON.stringify(correctAns);
-    } else {
-      const userAns = Array.isArray(userAnswer) ? userAnswer[0] : userAnswer;
-      return userAns === question.correctAnswer[0];
-    }
-  } else {
-    const userAns = (Array.isArray(userAnswer) ? userAnswer[0] : userAnswer).toLowerCase().trim();
-    return question.correctAnswer.some((ans) => ans.toLowerCase().trim() === userAns);
+    if (!response.ok) return null;
+    const data = await response.json();
+    return (data.sections as Section[]) ?? null;
+  } catch (error) {
+    console.error('Error loading exam questions:', error);
+    return null;
   }
 };
 
 export const formatTime = (seconds: number): string => {
-  const hrs = Math.floor(seconds / 3600);
+  const hrs  = Math.floor(seconds / 3600);
   const mins = Math.floor((seconds % 3600) / 60);
   const secs = seconds % 60;
 
