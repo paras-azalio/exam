@@ -258,7 +258,8 @@ export default function RecordingsModal({ creds, result, examCode, onClose }: Pr
         status:        ar.status,
         transcript:    ar.transcript,
         feedback:      ar.feedback,
-      }))
+      })),
+      result.answersJson
     );
   };
 

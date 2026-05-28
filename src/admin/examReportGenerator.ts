@@ -1,5 +1,18 @@
 import { ExamRow, ResultRow, AiResultRow } from './adminApi';
 
+interface McqDetail {
+  questionId:     string;
+  questionNumber: number;
+  questionText:   string;
+  questionType:   string;          // 'mcq' | 'subjective' | 'verbal'
+  options:        { id: string; type: string; text?: string }[] | null;
+  correctAnswer:  string | string[];
+  userAnswer:     string | string[] | null;
+  correct:        boolean;
+  marksAwarded:   number;
+  totalMarks:     number;
+}
+
 function timeTaken(row: ResultRow): string {
   if (!row.startedAt || !row.createdAt) return '—';
   const secs = Math.floor((new Date(row.createdAt).getTime() - new Date(row.startedAt).getTime()) / 1000);
@@ -95,62 +108,75 @@ function buildSummaryTable(rows: ResultRow[]): string {
   </table>`;
 }
 
-function buildVerbalSection(aiResults: AiResultRow[]): string {
+function buildVerbalSection(aiResults: AiResultRow[], cardIdx: number): string {
   if (!aiResults || aiResults.length === 0) return '';
 
-  const questions = aiResults.map((ar, i) => `
-    <div style="margin-bottom:24px;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden">
-      <!-- Question header -->
-      <div style="background:#f8fafc;padding:12px 16px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center">
-        <div style="font-weight:700;color:#1e293b;font-size:14px">Q${i + 1}. <span style="font-family:monospace;color:#6366f1;font-size:12px">${escHtml(ar.questionId)}</span></div>
+  const questions = aiResults.map((ar, i) => {
+    const bodyId = `qb-${cardIdx}-${i}`;
+    const iconId = `qi-${cardIdx}-${i}`;
+    return `
+    <div style="margin-bottom:16px;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden">
+
+      <!-- Question header (clickable) -->
+      <div
+        onclick="toggleQ('${bodyId}','${iconId}')"
+        style="background:#f8fafc;padding:12px 16px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none"
+      >
+        <div style="font-weight:700;color:#1e293b;font-size:14px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:12px">
+          Q${i + 1}. ${escHtml(ar.question.length > 80 ? ar.question.slice(0, 80) + '…' : ar.question)}
+        </div>
         <div style="display:flex;gap:8px;align-items:center">
           <span style="${statusBadge(ar.status)};padding:2px 10px;border-radius:20px;font-size:12px;font-weight:600">${ar.status}</span>
-          <span style="font-weight:700;color:#1e293b;font-size:15px">${ar.aiScore != null ? ar.aiScore.toFixed(2) : '—'} <span style="color:#6b7280;font-weight:400;font-size:13px">/ ${ar.maxMarks ?? '—'} pts</span></span>
+          <span style="font-weight:700;color:#1e293b;font-size:15px">
+            ${ar.aiScore != null ? ar.aiScore.toFixed(2) : '—'}
+            <span style="color:#6b7280;font-weight:400;font-size:13px">/ ${ar.maxMarks ?? '—'} pts</span>
+          </span>
+          <span id="${iconId}" style="font-size:16px;color:#94a3b8;transition:transform .2s;line-height:1">▾</span>
         </div>
       </div>
 
-      <!-- Question text -->
-      <div style="padding:14px 16px;border-bottom:1px solid #f1f5f9">
-        <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Question</div>
-        <div style="color:#1e293b;font-size:14px;line-height:1.6">${escHtml(ar.question)}</div>
-      </div>
+      <!-- Collapsible question body -->
+      <div id="${bodyId}" class="card-body">
 
-      <!-- Expected reply -->
-      ${ar.expectedReply ? `
-      <div style="padding:14px 16px;border-bottom:1px solid #f1f5f9;background:#fafafa">
-        <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Expected Reply</div>
-        <div style="color:#374151;font-size:13px;line-height:1.7">${escHtml(ar.expectedReply)}</div>
-      </div>` : ''}
+        <!-- Question text -->
+        <div style="padding:14px 16px;border-bottom:1px solid #f1f5f9">
+          <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Question</div>
+          <div style="color:#1e293b;font-size:14px;line-height:1.6">${escHtml(ar.question)}</div>
+        </div>
 
-      <!-- Transcript -->
-      ${ar.transcript ? `
-      <div style="padding:14px 16px;border-bottom:1px solid #f1f5f9;background:#fffbeb">
-        <div style="font-size:11px;font-weight:700;color:#d97706;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">🎤 Candidate's Answer (Transcript)</div>
-        <div style="color:#374151;font-size:14px;font-style:italic;line-height:1.7">"${escHtml(ar.transcript)}"</div>
-      </div>` : `
-      <div style="padding:14px 16px;border-bottom:1px solid #f1f5f9;background:#fffbeb">
-        <div style="font-size:11px;font-weight:700;color:#d97706;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">🎤 Candidate's Answer (Transcript)</div>
-        <div style="color:#9ca3af;font-size:13px;font-style:italic">No transcript available</div>
-      </div>`}
+        <!-- Expected reply -->
+        ${ar.expectedReply ? `
+        <div style="padding:14px 16px;border-bottom:1px solid #f1f5f9;background:#fafafa">
+          <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Expected Reply</div>
+          <div style="color:#374151;font-size:13px;line-height:1.7">${escHtml(ar.expectedReply)}</div>
+        </div>` : ''}
 
-      <!-- AI Feedback -->
-      ${ar.feedback ? `
-      <div style="padding:14px 16px;background:#f0fdf4">
-        <div style="font-size:11px;font-weight:700;color:#16a34a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">💬 AI Feedback</div>
-        <div style="color:#374151;font-size:14px;line-height:1.7">${escHtml(ar.feedback)}</div>
-      </div>` : `
-      <div style="padding:14px 16px;background:#f0fdf4">
-        <div style="font-size:11px;font-weight:700;color:#16a34a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">💬 AI Feedback</div>
-        <div style="color:#9ca3af;font-size:13px;font-style:italic">No feedback available</div>
-      </div>`}
+        <!-- Transcript -->
+        <div style="padding:14px 16px;border-bottom:1px solid #f1f5f9;background:#fffbeb">
+          <div style="font-size:11px;font-weight:700;color:#d97706;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">🎤 Candidate's Answer (Transcript)</div>
+          ${ar.transcript
+            ? `<div style="color:#374151;font-size:14px;font-style:italic;line-height:1.7">"${escHtml(ar.transcript)}"</div>`
+            : `<div style="color:#9ca3af;font-size:13px;font-style:italic">No transcript available</div>`}
+        </div>
 
-      <!-- Timestamps -->
-      <div style="padding:8px 16px;background:#f8fafc;border-top:1px solid #f1f5f9;display:flex;gap:24px;font-size:11px;color:#94a3b8">
-        ${ar.initiatedAt ? `<span>Sent: ${fmtDate(ar.initiatedAt)}</span>` : ''}
-        ${ar.receivedAt  ? `<span>Received: ${fmtDate(ar.receivedAt)}</span>` : ''}
-        <span>Precision: ${ar.precisionLevel ?? '—'}</span>
-      </div>
-    </div>`).join('');
+        <!-- AI Feedback -->
+        <div style="padding:14px 16px;background:#f0fdf4">
+          <div style="font-size:11px;font-weight:700;color:#16a34a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">💬 AI Feedback</div>
+          ${ar.feedback
+            ? `<div style="color:#374151;font-size:14px;line-height:1.7">${escHtml(ar.feedback)}</div>`
+            : `<div style="color:#9ca3af;font-size:13px;font-style:italic">No feedback available</div>`}
+        </div>
+
+        <!-- Timestamps -->
+        <div style="padding:8px 16px;background:#f8fafc;border-top:1px solid #f1f5f9;display:flex;gap:24px;font-size:11px;color:#94a3b8">
+          ${ar.initiatedAt ? `<span>Sent: ${fmtDate(ar.initiatedAt)}</span>` : ''}
+          ${ar.receivedAt  ? `<span>Received: ${fmtDate(ar.receivedAt)}</span>` : ''}
+          <span>Precision: ${ar.precisionLevel ?? '—'}</span>
+        </div>
+
+      </div><!-- end question body -->
+    </div>`;
+  }).join('');
 
   return `
     <div style="margin-top:20px">
@@ -161,57 +187,174 @@ function buildVerbalSection(aiResults: AiResultRow[]): string {
     </div>`;
 }
 
+function buildMcqSection(details: McqDetail[], cardIdx: number): string {
+  const mcqOnly = details.filter(d => d.questionType !== 'verbal');
+  if (mcqOnly.length === 0) return '';
+
+  const blocks = mcqOnly.map((d, i) => {
+    const bodyId  = `mcq-body-${cardIdx}-${i}`;
+    const iconId  = `mcq-icon-${cardIdx}-${i}`;
+    const notAttempted = d.userAnswer === null || d.userAnswer === undefined ||
+      (Array.isArray(d.userAnswer) && d.userAnswer.length === 0);
+    const correct = d.correct;
+
+    const headerBg     = correct ? '#f0fdf4' : notAttempted ? '#f8fafc' : '#fef2f2';
+    const headerBorder = correct ? '#bbf7d0' : notAttempted ? '#e5e7eb'  : '#fecaca';
+    const badgeStyle   = correct
+      ? 'background:#d1fae5;color:#065f46'
+      : notAttempted
+      ? 'background:#f3f4f6;color:#6b7280'
+      : 'background:#fee2e2;color:#991b1b';
+    const badgeText    = correct ? '✓ Correct' : notAttempted ? '— Skipped' : '✗ Wrong';
+    const markSign     = d.marksAwarded > 0 ? '+' : '';
+    const markColor    = d.marksAwarded > 0 ? '#16a34a' : d.marksAwarded < 0 ? '#dc2626' : '#6b7280';
+
+    // Options HTML
+    let optionsHtml = '';
+    const correctIds: string[] = Array.isArray(d.correctAnswer)
+      ? d.correctAnswer as string[]
+      : d.correctAnswer ? [d.correctAnswer as string] : [];
+    const userIds: string[] = Array.isArray(d.userAnswer)
+      ? d.userAnswer as string[]
+      : d.userAnswer ? [d.userAnswer as string] : [];
+
+    if (d.questionType === 'subjective') {
+      const userAns  = userIds.join(' / ') || '(Not answered)';
+      const corrAns  = correctIds.join(' / ') || '—';
+      optionsHtml = `
+        <div style="background:#f9fafb;border-radius:6px;padding:10px 14px;font-size:13px">
+          <div style="margin-bottom:5px"><strong>Answer:</strong> ${escHtml(userAns)}</div>
+          <div style="color:#16a34a"><strong>Correct:</strong> ${escHtml(corrAns)}</div>
+        </div>`;
+    } else if (d.options && d.options.length > 0) {
+      optionsHtml = d.options.map(opt => {
+        const isCorrect  = correctIds.includes(opt.id);
+        const isSelected = userIds.includes(opt.id);
+        let bg = 'transparent', border = '#e5e7eb', color = '#374151', marker = '○';
+        if (isCorrect && isSelected)  { bg = '#bbf7d0'; border = '#16a34a'; color = '#14532d'; marker = '✓'; }
+        else if (isCorrect)           { bg = '#d1fae5'; border = '#22c55e'; color = '#166534'; marker = '✓'; }
+        else if (isSelected)          { bg = '#fee2e2'; border = '#f87171'; color = '#991b1b'; marker = '✗'; }
+        const label = opt.type === 'image'
+          ? `[Image option ${opt.id.toUpperCase()}]`
+          : escHtml(opt.text ?? '');
+        return `<div style="padding:7px 12px;margin-bottom:5px;border-radius:5px;border:1px solid ${border};background:${bg};color:${color};font-size:13px">
+          ${marker} (${opt.id.toUpperCase()}) ${label}
+        </div>`;
+      }).join('');
+    }
+
+    return `
+    <div style="margin-bottom:10px;border:1px solid ${headerBorder};border-radius:8px;overflow:hidden">
+      <!-- MCQ question header -->
+      <div
+        onclick="toggleQ('${bodyId}','${iconId}')"
+        style="background:${headerBg};padding:10px 14px;display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none;border-bottom:1px solid ${headerBorder}"
+      >
+        <div style="font-size:13px;font-weight:700;color:#1e293b;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:12px">
+          Q${d.questionNumber}. ${escHtml(d.questionText.length > 80 ? d.questionText.slice(0, 80) + '…' : d.questionText)}
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+          <span style="${badgeStyle};padding:2px 9px;border-radius:20px;font-size:11px;font-weight:700">${badgeText}</span>
+          <span style="font-weight:700;color:${markColor};font-size:13px">${markSign}${d.marksAwarded.toFixed(2)} / ${d.totalMarks}</span>
+          <span id="${iconId}" style="font-size:14px;color:#94a3b8;transition:transform .2s">▾</span>
+        </div>
+      </div>
+      <!-- Collapsible MCQ body -->
+      <div id="${bodyId}" class="card-body" style="padding:12px 14px;background:#fff">
+        <div style="font-size:14px;color:#1e293b;line-height:1.6;margin-bottom:10px">${escHtml(d.questionText)}</div>
+        ${optionsHtml}
+      </div>
+    </div>`;
+  }).join('');
+
+  return `
+    <div style="margin-top:20px">
+      <div style="font-size:13px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px;padding-bottom:6px;border-bottom:2px solid #e5e7eb">
+        📋 MCQ / Subjective Questions (${mcqOnly.length})
+      </div>
+      ${blocks}
+    </div>`;
+}
+
 function buildCandidateCard(row: ResultRow, index: number): string {
   const aiResults      = row.aiResults ?? [];
   const verbalTotal    = aiResults.reduce((s, ar) => s + (ar.aiScore ?? 0), 0);
   const verbalMaxTotal = aiResults.reduce((s, ar) => s + (ar.maxMarks ?? 0), 0);
   const gColor         = gradeColor(row.grade);
+  const cardId         = `card-body-${index}`;
+  const iconId         = `card-icon-${index}`;
 
   return `
-  <div style="margin-bottom:32px;border:2px solid #e5e7eb;border-radius:14px;overflow:hidden;page-break-inside:avoid">
+  <div id="card-${index}" style="margin-bottom:20px;border:2px solid #e5e7eb;border-radius:14px;overflow:hidden;page-break-inside:avoid">
 
-    <!-- Candidate header -->
-    <div style="background:#1e293b;color:#fff;padding:16px 20px;display:flex;justify-content:space-between;align-items:center">
-      <div>
-        <div style="font-size:18px;font-weight:800">${index + 1}. ${escHtml(row.studentName)}</div>
-        <div style="font-size:13px;color:#94a3b8;margin-top:2px">${escHtml(row.studentEmail)}</div>
+    <!-- Candidate header (clickable toggle) -->
+    <div
+      onclick="toggleCard(${index})"
+      style="background:#1e293b;color:#fff;padding:14px 20px;display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none"
+    >
+      <!-- Left: name + email + score pill -->
+      <div style="display:flex;align-items:center;gap:16px;flex:1;min-width:0">
+        <div style="font-size:15px;font-weight:800;white-space:nowrap">${index + 1}. ${escHtml(row.studentName)}</div>
+        <div style="font-size:12px;color:#94a3b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(row.studentEmail)}</div>
+        <div style="background:#0f172a;border-radius:6px;padding:2px 10px;font-size:12px;font-weight:700;color:#e2e8f0;white-space:nowrap;flex-shrink:0">
+          ${(row.totalScore ?? 0).toFixed(2)} / ${(row.totalMaxMarks ?? 0).toFixed(2)} pts
+        </div>
       </div>
-      <div style="text-align:right">
-        <div style="background:${gColor};color:#fff;border-radius:8px;padding:4px 18px;font-size:22px;font-weight:900;display:inline-block">${row.grade ?? '—'}</div>
-        <div style="font-size:12px;color:#94a3b8;margin-top:4px">${fmtDate(row.createdAt)}</div>
+      <!-- Right: grade + submitted + chevron -->
+      <div style="display:flex;align-items:center;gap:12px;flex-shrink:0;margin-left:12px">
+        <div style="background:${gColor};color:#fff;border-radius:6px;padding:2px 14px;font-size:16px;font-weight:900">${row.grade ?? '—'}</div>
+        <div style="font-size:11px;color:#64748b;text-align:right">
+          ${fmtDate(row.createdAt)}
+        </div>
+        <div id="${iconId}" style="font-size:18px;color:#94a3b8;transition:transform .2s;line-height:1">▾</div>
       </div>
     </div>
 
-    <!-- Score summary -->
-    <div style="display:flex;border-bottom:1px solid #e5e7eb">
-      <div style="flex:1;padding:14px 20px;border-right:1px solid #e5e7eb">
-        <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">MCQ Score</div>
-        <div style="font-size:20px;font-weight:800;color:#1e293b">${row.score ?? 0} <span style="font-size:14px;color:#6b7280;font-weight:400">/ ${row.totalMarks ?? 0}</span></div>
-      </div>
-      ${aiResults.length > 0 ? `
-      <div style="flex:1;padding:14px 20px;border-right:1px solid #e5e7eb">
-        <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Verbal Score</div>
-        <div style="font-size:20px;font-weight:800;color:#6366f1">${verbalTotal.toFixed(2)} <span style="font-size:14px;color:#6b7280;font-weight:400">/ ${verbalMaxTotal.toFixed(2)}</span></div>
-      </div>` : ''}
-      <div style="flex:1;padding:14px 20px;border-right:1px solid #e5e7eb">
-        <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Total Score</div>
-        <div style="font-size:20px;font-weight:800;color:#1e293b">${(row.totalScore ?? 0).toFixed(2)} <span style="font-size:14px;color:#6b7280;font-weight:400">/ ${(row.totalMaxMarks ?? 0).toFixed(2)}</span></div>
-      </div>
-      <div style="flex:1;padding:14px 20px;border-right:1px solid #e5e7eb">
-        <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Violations</div>
-        <div style="font-size:20px;font-weight:800;color:${row.violations != null && row.violations > 2 ? '#dc2626' : '#1e293b'}">${row.violations ?? '—'}</div>
-      </div>
-      <div style="flex:1;padding:14px 20px">
-        <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Time Taken</div>
-        <div style="font-size:16px;font-weight:700;color:#1e293b">${timeTaken(row)}</div>
-        <div style="font-size:11px;color:#94a3b8">Started: ${fmtDate(row.startedAt)}</div>
-      </div>
-    </div>
+    <!-- Collapsible body -->
+    <div id="${cardId}" class="card-body">
 
-    <!-- Verbal section -->
-    <div style="padding:20px">
-      ${aiResults.length > 0 ? buildVerbalSection(aiResults) : '<div style="color:#9ca3af;font-style:italic;font-size:13px">No verbal questions for this submission.</div>'}
-    </div>
+      <!-- Score summary row -->
+      <div style="display:flex;border-bottom:1px solid #e5e7eb;flex-wrap:wrap">
+        <div style="flex:1;min-width:120px;padding:14px 20px;border-right:1px solid #e5e7eb">
+          <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">MCQ Score</div>
+          <div style="font-size:20px;font-weight:800;color:#1e293b">${row.score ?? 0} <span style="font-size:14px;color:#6b7280;font-weight:400">/ ${row.totalMarks ?? 0}</span></div>
+        </div>
+        ${aiResults.length > 0 ? `
+        <div style="flex:1;min-width:120px;padding:14px 20px;border-right:1px solid #e5e7eb">
+          <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Verbal Score</div>
+          <div style="font-size:20px;font-weight:800;color:#6366f1">${verbalTotal.toFixed(2)} <span style="font-size:14px;color:#6b7280;font-weight:400">/ ${verbalMaxTotal.toFixed(2)}</span></div>
+        </div>` : ''}
+        <div style="flex:1;min-width:120px;padding:14px 20px;border-right:1px solid #e5e7eb">
+          <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Total Score</div>
+          <div style="font-size:20px;font-weight:800;color:#1e293b">${(row.totalScore ?? 0).toFixed(2)} <span style="font-size:14px;color:#6b7280;font-weight:400">/ ${(row.totalMaxMarks ?? 0).toFixed(2)}</span></div>
+        </div>
+        <div style="flex:1;min-width:100px;padding:14px 20px;border-right:1px solid #e5e7eb">
+          <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Violations</div>
+          <div style="font-size:20px;font-weight:800;color:${row.violations != null && row.violations > 2 ? '#dc2626' : '#1e293b'}">${row.violations ?? '—'}</div>
+        </div>
+        <div style="flex:1;min-width:120px;padding:14px 20px">
+          <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Time Taken</div>
+          <div style="font-size:16px;font-weight:700;color:#1e293b">${timeTaken(row)}</div>
+          <div style="font-size:11px;color:#94a3b8">Started: ${fmtDate(row.startedAt)}</div>
+        </div>
+      </div>
+
+      <!-- MCQ + Verbal sections -->
+      <div style="padding:20px">
+        ${(() => {
+          let mcqHtml = '';
+          try {
+            if (row.answersJson) {
+              const details: McqDetail[] = JSON.parse(row.answersJson);
+              mcqHtml = buildMcqSection(details, index);
+            }
+          } catch { /* ignore parse errors */ }
+          return mcqHtml;
+        })()}
+        ${aiResults.length > 0 ? buildVerbalSection(aiResults, index) : '<div style="color:#9ca3af;font-style:italic;font-size:13px;margin-top:16px">No verbal questions for this submission.</div>'}
+      </div>
+
+    </div><!-- end collapsible body -->
   </div>`;
 }
 
@@ -256,10 +399,14 @@ export function generateExamReport(exam: ExamRow, rows: ResultRow[]): void {
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f8fafc; color: #1e293b; }
     .container { max-width: 1100px; margin: 0 auto; padding: 32px 24px; }
+    .card-body { overflow: hidden; transition: max-height .3s ease, opacity .2s ease; }
+    .card-body.collapsed { max-height: 0 !important; opacity: 0; }
     @media print {
       body { background: #fff; }
       .container { padding: 0; }
       .no-print { display: none !important; }
+      .card-body { max-height: none !important; opacity: 1 !important; }
+      .card-body.collapsed { max-height: none !important; opacity: 1 !important; }
     }
   </style>
 </head>
@@ -295,13 +442,60 @@ export function generateExamReport(exam: ExamRow, rows: ResultRow[]): void {
     </div>
   </div>
 
-  <!-- Per-candidate detail -->
-  <div style="font-size:18px;font-weight:800;margin-bottom:20px;padding-bottom:10px;border-bottom:3px solid #1e293b">
-    Detailed Results
+  <!-- Per-candidate detail header + controls -->
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;padding-bottom:10px;border-bottom:3px solid #1e293b;flex-wrap:wrap;gap:10px">
+    <div style="font-size:18px;font-weight:800">
+      Detailed Results
+      <span style="font-size:13px;font-weight:500;color:#6b7280;margin-left:8px">(${rows.length} candidate${rows.length !== 1 ? 's' : ''})</span>
+    </div>
+    <button id="toggle-all-btn" class="no-print" onclick="toggleAll()" style="background:#f1f5f9;border:1px solid #cbd5e1;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;color:#374151;cursor:pointer">▸ Collapse All</button>
   </div>
+
   ${candidateCards}
 
 </div>
+
+<script>
+  var TOTAL = ${rows.length};
+
+  // Set natural max-height on every collapsible body so CSS transition works
+  window.addEventListener('DOMContentLoaded', function() {
+    var all = document.querySelectorAll('.card-body');
+    for (var i = 0; i < all.length; i++) {
+      all[i].style.maxHeight = all[i].scrollHeight + 'px';
+    }
+  });
+
+  function toggleCard(i) {
+    var body = document.getElementById('card-body-' + i);
+    var icon = document.getElementById('card-icon-' + i);
+    if (!body) return;
+    var collapsed = body.classList.toggle('collapsed');
+    if (icon) icon.style.transform = collapsed ? 'rotate(-90deg)' : '';
+  }
+
+  function toggleQ(bodyId, iconId) {
+    var body = document.getElementById(bodyId);
+    var icon = document.getElementById(iconId);
+    if (!body) return;
+    var collapsed = body.classList.toggle('collapsed');
+    if (icon) icon.style.transform = collapsed ? 'rotate(-90deg)' : '';
+  }
+
+  var allCollapsed = false;
+
+  function toggleAll() {
+    allCollapsed = !allCollapsed;
+    for (var i = 0; i < TOTAL; i++) {
+      var body = document.getElementById('card-body-' + i);
+      var icon = document.getElementById('card-icon-' + i);
+      if (body) { allCollapsed ? body.classList.add('collapsed') : body.classList.remove('collapsed'); }
+      if (icon) { icon.style.transform = allCollapsed ? 'rotate(-90deg)' : ''; }
+    }
+    var btn = document.getElementById('toggle-all-btn');
+    if (btn) btn.textContent = allCollapsed ? '▾ Expand All' : '▸ Collapse All';
+  }
+</script>
 </body>
 </html>`;
 

@@ -310,7 +310,11 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
                             )}
                           </div>
                           {totalPct !== null && (
-                            <span className={`text-xs font-medium ${totalPct >= 60 ? 'text-green-600' : 'text-red-500'}`}>
+                            <span className={`text-xs font-medium ${
+                              row.grade?.toUpperCase() === 'F' ? 'text-red-500'
+                              : row.grade?.toUpperCase() === 'P' ? 'text-green-600'
+                              : 'text-gray-500'
+                            }`}>
                               {totalPct}%
                             </span>
                           )}
@@ -326,7 +330,11 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
                           </span>
                         ) : '—'}
                         {pct !== null && (
-                          <span className={`ml-2 text-xs font-medium ${pct >= 60 ? 'text-green-600' : 'text-red-500'}`}>
+                          <span className={`ml-2 text-xs font-medium ${
+                            row.grade?.toUpperCase() === 'F' ? 'text-red-500'
+                            : row.grade?.toUpperCase() === 'P' ? 'text-green-600'
+                            : 'text-gray-500'
+                          }`}>
                             ({pct}%)
                           </span>
                         )}
