@@ -57,6 +57,11 @@ export interface ResultRow {
   totalMaxMarks: number;
   /** Verbal AI evaluation records — one per verbal question in the exam. */
   aiResults: AiResultRow[];
+  /**
+   * Full per-question scoring details serialised as JSON string.
+   * Parse with JSON.parse() → McqDetailRow[]. Null for old submissions.
+   */
+  answersJson: string | null;
 }
 
 const authHeader = (creds: string) => ({

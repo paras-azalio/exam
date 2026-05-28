@@ -1,106 +1,8 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-
-/** Custom audio player shown in the verbal detail popup. */
-function AudioPlayer({ src }: { src: string }) {
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const [playing, setPlaying]   = useState(false);
-  const [current, setCurrent]   = useState(0);
-  const [duration, setDuration] = useState(0);
-
-  const fmt = (s: number) => {
-    if (!isFinite(s) || isNaN(s)) return '0:00';
-    const m = Math.floor(s / 60);
-    const sec = Math.floor(s % 60);
-    return `${m}:${sec.toString().padStart(2, '0')}`;
-  };
-
-  // MediaRecorder blobs have duration=Infinity. Seeking to a huge time
-  // forces the browser to clamp to the real end and fire durationchange.
-  useEffect(() => {
-    const a = audioRef.current;
-    if (!a) return;
-    const onMeta = () => {
-      if (!isFinite(a.duration)) {
-        a.currentTime = 1e10;
-      } else {
-        setDuration(a.duration);
-      }
-    };
-    const onDurChange = () => {
-      if (isFinite(a.duration) && a.duration > 0) {
-        setDuration(a.duration);
-        a.currentTime = 0;
-      }
-    };
-    a.addEventListener('loadedmetadata', onMeta);
-    a.addEventListener('durationchange', onDurChange);
-    return () => {
-      a.removeEventListener('loadedmetadata', onMeta);
-      a.removeEventListener('durationchange', onDurChange);
-    };
-  }, [src]);
-
-  const toggle = useCallback(() => {
-    const a = audioRef.current;
-    if (!a) return;
-    playing ? a.pause() : a.play();
-  }, [playing]);
-
-  const seek = (e: React.MouseEvent<HTMLDivElement>) => {
-    const a = audioRef.current;
-    if (!a || !duration) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    a.currentTime = ratio * duration;
-    setCurrent(ratio * duration);
-  };
-
-  const pct = duration > 0 ? (current / duration) * 100 : 0;
-  return (
-    <div className="flex items-center gap-2 bg-gray-100 rounded-full px-3 py-1.5 select-none w-full">
-      <audio
-        ref={audioRef}
-        src={src}
-        onPlay={() => setPlaying(true)}
-        onPause={() => setPlaying(false)}
-        onEnded={() => { setPlaying(false); setCurrent(0); if (audioRef.current) audioRef.current.currentTime = 0; }}
-        onTimeUpdate={() => { const a = audioRef.current; if (a) setCurrent(a.currentTime); }}
-      />
-
-      {/* Play / Pause */}
-      <button
-        onClick={toggle}
-        className="w-7 h-7 flex-shrink-0 flex items-center justify-center rounded-full bg-black hover:bg-gray-800 text-white transition"
-      >
-        {playing ? (
-          <svg viewBox="0 0 24 24" fill="currentColor" className="w-3 h-3"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
-        ) : (
-          <svg viewBox="0 0 24 24" fill="currentColor" className="w-3 h-3"><path d="M8 5v14l11-7z"/></svg>
-        )}
-      </button>
-
-      {/* Current time */}
-      <span className="text-[11px] text-gray-500 font-mono w-8 text-right flex-shrink-0">{fmt(current)}</span>
-
-      {/* Progress bar */}
-      <div
-        className="flex-1 relative h-1 bg-gray-300 rounded-full cursor-pointer"
-        onClick={seek}
-      >
-        <div
-          className="absolute left-0 top-0 h-full bg-gray-800 rounded-full"
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-
-      {/* Duration */}
-      <span className="text-[11px] text-gray-500 font-mono w-8 flex-shrink-0">{fmt(duration)}</span>
-    </div>
-  );
-}
+import React, { useState, useEffect } from 'react';
 import { adminApi, AiResultRow, ExamRow, ResultRow } from './adminApi';
 import RecordingsModal from './RecordingsModal';
 import { BACKEND_URL } from '../config';
+import { generateExamReport } from './examReportGenerator';
 
 /** Returns true when a verbal AI row is eligible for retry in the admin UI. */
 function isRetryEligible(ar: AiResultRow): boolean {
@@ -288,7 +190,18 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
               )}
             </p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+          <div className="flex items-center gap-3">
+            {!loading && !error && rows.length > 0 && (
+              <button
+                onClick={() => generateExamReport(exam, rows)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg transition"
+                title="Download full HTML report"
+              >
+                ⬇ Download Report
+              </button>
+            )}
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+          </div>
         </div>
 
         {/* Body */}
@@ -397,7 +310,11 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
                             )}
                           </div>
                           {totalPct !== null && (
-                            <span className={`text-xs font-medium ${row.grade && row.grade !== 'F' ? 'text-green-600' : 'text-red-500'}`}>
+                            <span className={`text-xs font-medium ${
+                              row.grade?.toUpperCase() === 'F' ? 'text-red-500'
+                              : row.grade?.toUpperCase() === 'P' ? 'text-green-600'
+                              : 'text-gray-500'
+                            }`}>
                               {totalPct}%
                             </span>
                           )}
@@ -413,7 +330,11 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
                           </span>
                         ) : '—'}
                         {pct !== null && (
-                          <span className={`ml-2 text-xs font-medium ${row.grade && row.grade !== 'F' ? 'text-green-600' : 'text-red-500'}`}>
+                          <span className={`ml-2 text-xs font-medium ${
+                            row.grade?.toUpperCase() === 'F' ? 'text-red-500'
+                            : row.grade?.toUpperCase() === 'P' ? 'text-green-600'
+                            : 'text-gray-500'
+                          }`}>
                             ({pct}%)
                           </span>
                         )}
@@ -582,96 +503,104 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
           onClick={closeVerbalDetail}
         >
           <div
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col overflow-y-auto"
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col"
             onClick={e => e.stopPropagation()}
           >
-            {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-              <h4 className="font-bold text-gray-800 text-sm">Verbal Question Detail</h4>
-              <button onClick={closeVerbalDetail} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
-            </div>
-
-            {/* Score */}
-            <div className="px-6 pt-5 pb-4 text-center border-b border-gray-100">
-              {verbalDetailPopup.status === 'SUCCESS' ? (
-                <>
-                  <p className="text-4xl font-bold text-orange-700">
+            {/* ── Fixed header ── */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <h4 className="font-bold text-gray-800 text-sm">Verbal Question Detail</h4>
+                {/* Score pill always visible in header */}
+                {verbalDetailPopup.status === 'SUCCESS' && verbalDetailPopup.aiScore != null && (
+                  <span className="text-sm font-bold text-orange-700 bg-orange-50 border border-orange-200 px-2.5 py-0.5 rounded-full">
                     {Number(verbalDetailPopup.aiScore).toFixed(2)}
                     {verbalDetailPopup.maxMarks != null && verbalDetailPopup.maxMarks > 0 && (
-                      <span className="text-2xl text-gray-400 font-normal"> / {verbalDetailPopup.maxMarks}</span>
-                    )}
-                  </p>
-                  <p className="text-sm text-gray-400 mt-1">pts</p>
-                </>
-              ) : (
-                <p className="text-2xl font-semibold text-gray-400">
-                  {verbalDetailPopup.status === 'FAILED' ? '⚠ Failed' :
-                   verbalDetailPopup.status === 'SENT'   ? '⏳ Evaluating…' : '⏳ Pending'}
-                  {verbalDetailPopup.maxMarks ? ` / ${verbalDetailPopup.maxMarks} pts` : ''}
-                </p>
-              )}
-              {verbalDetailPopup.precisionLevel != null && (
-                <span className="inline-block mt-2 text-xs bg-gray-100 text-gray-500 px-3 py-0.5 rounded-full">
-                  Precision {verbalDetailPopup.precisionLevel}
-                </span>
-              )}
-            </div>
-
-            {/* Question */}
-            <div className="px-6 py-4 border-b border-gray-100">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Question</p>
-              <p className="text-sm text-gray-700 leading-relaxed">{verbalDetailPopup.question}</p>
-            </div>
-
-            {/* Expected reply */}
-            {verbalDetailPopup.expectedReply && (
-              <div className="px-6 py-4 border-b border-gray-100">
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Expected Reply</p>
-                <p className="text-xs text-gray-500 leading-relaxed">{verbalDetailPopup.expectedReply}</p>
-              </div>
-            )}
-
-            {/* Audio playback */}
-            {verbalDetailPopup.audioPath && (
-              <div className="px-6 py-4 border-b border-gray-100">
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Recording</p>
-                {audioLoading ? (
-                  <div className="text-xs text-gray-400 italic">Loading audio…</div>
-                ) : audioObjectUrl ? (
-                  <AudioPlayer src={audioObjectUrl} />
-                ) : (
-                  <div className="text-xs text-red-400 italic">Audio not available</div>
+                      <span className="text-gray-400 font-normal"> / {verbalDetailPopup.maxMarks}</span>
+                    )} pts
+                  </span>
+                )}
+                {verbalDetailPopup.precisionLevel != null && (
+                  <span className="text-xs bg-gray-100 text-gray-500 px-2.5 py-0.5 rounded-full">
+                    Precision {verbalDetailPopup.precisionLevel}
+                  </span>
                 )}
               </div>
-            )}
-
-            {/* Transcript */}
-            {verbalDetailPopup.transcript && (
-              <div className="px-6 py-4 border-b border-gray-100">
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Transcript</p>
-                <p className="text-sm text-gray-700 leading-relaxed italic">"{verbalDetailPopup.transcript}"</p>
-              </div>
-            )}
-
-            {/* AI Feedback */}
-            {verbalDetailPopup.feedback && (
-              <div className="px-6 py-4 border-b border-gray-100">
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">AI Feedback</p>
-                <div className="flex gap-2">
-                  <span className="text-base mt-0.5">💬</span>
-                  <p className="text-sm text-gray-700 leading-relaxed">{verbalDetailPopup.feedback}</p>
-                </div>
-              </div>
-            )}
-
-            {/* Timestamps */}
-            <div className="px-6 py-3 border-b border-gray-100 flex justify-between text-xs text-gray-400">
-              {verbalDetailPopup.initiatedAt && <span>Sent: {new Date(verbalDetailPopup.initiatedAt).toLocaleString()}</span>}
-              {verbalDetailPopup.receivedAt  && <span>Received: {new Date(verbalDetailPopup.receivedAt).toLocaleString()}</span>}
+              <button onClick={closeVerbalDetail} className="text-gray-400 hover:text-gray-600 text-xl leading-none flex-shrink-0 ml-3">✕</button>
             </div>
 
-            {/* Footer */}
-            <div className="px-6 pb-5 pt-4 flex justify-end">
+            {/* ── Scrollable body ── */}
+            <div className="flex-1 overflow-y-auto divide-y divide-gray-100">
+
+              {/* Status (non-success only) */}
+              {verbalDetailPopup.status !== 'SUCCESS' && (
+                <div className="px-6 py-4 text-center">
+                  <p className="text-xl font-semibold text-gray-400">
+                    {verbalDetailPopup.status === 'FAILED' ? '⚠ Failed' :
+                     verbalDetailPopup.status === 'SENT'   ? '⏳ Evaluating…' : '⏳ Pending'}
+                    {verbalDetailPopup.maxMarks ? ` / ${verbalDetailPopup.maxMarks} pts` : ''}
+                  </p>
+                </div>
+              )}
+
+              {/* Question */}
+              <div className="px-6 py-4">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Question</p>
+                <p className="text-sm text-gray-700 leading-relaxed">{verbalDetailPopup.question}</p>
+              </div>
+
+              {/* Expected reply */}
+              {verbalDetailPopup.expectedReply && (
+                <div className="px-6 py-4">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Expected Reply</p>
+                  <p className="text-xs text-gray-500 leading-relaxed whitespace-pre-line">{verbalDetailPopup.expectedReply}</p>
+                </div>
+              )}
+
+              {/* Audio playback */}
+              {verbalDetailPopup.audioPath && (
+                <div className="px-6 py-4">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Recording</p>
+                  {audioLoading ? (
+                    <div className="text-xs text-gray-400 italic">Loading audio…</div>
+                  ) : audioObjectUrl ? (
+                    <audio controls src={audioObjectUrl} className="w-full h-10" />
+                  ) : (
+                    <div className="text-xs text-red-400 italic">Audio not available</div>
+                  )}
+                </div>
+              )}
+
+              {/* Transcript */}
+              {verbalDetailPopup.transcript && (
+                <div className="px-6 py-4 bg-amber-50">
+                  <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide mb-2">Transcript</p>
+                  <p className="text-sm text-gray-700 leading-relaxed italic">"{verbalDetailPopup.transcript}"</p>
+                </div>
+              )}
+
+              {/* AI Feedback */}
+              {verbalDetailPopup.feedback && (
+                <div className="px-6 py-4 bg-green-50">
+                  <p className="text-xs font-semibold text-green-600 uppercase tracking-wide mb-2">AI Feedback</p>
+                  <div className="flex gap-2">
+                    <span className="text-base mt-0.5 flex-shrink-0">💬</span>
+                    <p className="text-sm text-gray-700 leading-relaxed">{verbalDetailPopup.feedback}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Timestamps */}
+              {(verbalDetailPopup.initiatedAt || verbalDetailPopup.receivedAt) && (
+                <div className="px-6 py-3 flex flex-wrap gap-4 text-xs text-gray-400">
+                  {verbalDetailPopup.initiatedAt && <span>Sent: {new Date(verbalDetailPopup.initiatedAt).toLocaleString()}</span>}
+                  {verbalDetailPopup.receivedAt  && <span>Received: {new Date(verbalDetailPopup.receivedAt).toLocaleString()}</span>}
+                </div>
+              )}
+
+            </div>
+
+            {/* ── Fixed footer ── */}
+            <div className="px-6 py-3 border-t border-gray-100 flex justify-end flex-shrink-0">
               <button
                 onClick={closeVerbalDetail}
                 className="px-5 py-2 text-sm bg-slate-800 text-white rounded-lg hover:bg-slate-900 transition"
