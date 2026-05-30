@@ -425,6 +425,15 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
     });
   };
 
+  const handleClearResponse = () => {
+  setAnswers((prev) => prev.filter((a) => a.questionId !== currentQuestion.id));
+  setQuestionStatuses((prev) =>
+    prev.map((s) =>
+      s.questionId === currentQuestion.id ? { ...s, status: 'not-answered' } : s
+    )
+  );
+};
+
   const handleMarkToggle = () => {
     setAnswers((prev) => {
       const existing = prev.find((a) => a.questionId === currentQuestion.id);
@@ -840,11 +849,27 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
                 Previous
               </button>
               <div className="text-sm text-gray-600">Question {currentQuestionIndex + 1} of {allQuestions.length}</div>
+              
+              <div className="flex items-center gap-[10px]">
+              <button
+                onClick={handleClearResponse}
+                disabled={
+                !currentAnswer ||
+                (Array.isArray(currentAnswer.answer)
+                ? currentAnswer.answer.length === 0
+                : currentAnswer.answer === '') ||
+                currentQuestion?.type === 'verbal' ||
+                currentQuestion?.type === 'subjective'
+              }
+                className="px-4 py-2 bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100 disabled:opacity-40 disabled:cursor-not-allowed transition font-medium text-sm">
+                Clear Response
+              </button>
               <button onClick={handleNext}
                 disabled={currentQuestionIndex === allQuestions.length - 1}
                 className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition font-medium">
                 {currentQuestionIndex === allQuestions.length - 1 ? 'Last Question' : 'Next'}
               </button>
+            </div>
             </div>
 
             <div className="bg-white rounded-lg p-4 flex items-center justify-between">
