@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Question, Answer } from '../types/exam';
 import { formatTime } from '../utils/examUtils';
+import fixWebmDuration from 'fix-webm-duration';
 
 interface QuestionDisplayProps {
   question: Question;
@@ -201,8 +202,11 @@ function VerbalRecorder({ question, hasRecording, onRecorded, onRecordingStarted
   const recordTimerRef    = useRef<ReturnType<typeof setInterval> | null>(null);
   // Ref mirror of playbackUrl so the unmount cleanup closure always sees current value
   const playbackUrlRef    = useRef<string | null>(null);
+  // Ref mirror of elapsed so the onstop closure always sees the final recorded duration
+  const elapsedRef        = useRef(0);
 
   useEffect(() => { playbackUrlRef.current = playbackUrl; }, [playbackUrl]);
+  useEffect(() => { elapsedRef.current = elapsed; }, [elapsed]);
 
   // ── Cleanup on unmount ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -248,13 +252,16 @@ function VerbalRecorder({ question, hasRecording, onRecorded, onRecordingStarted
 
       mr.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
       mr.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
-        const url  = URL.createObjectURL(blob);
-        if (playbackUrlRef.current) URL.revokeObjectURL(playbackUrlRef.current);
-        setPlaybackUrl(url);
-        setRecordState('done');
-        onRecorded(blob);
-        stream.getTracks().forEach(t => t.stop());
+        const rawBlob = new Blob(chunksRef.current, { type: 'audio/webm' });
+        const durationMs = elapsedRef.current * 1000;
+        fixWebmDuration(rawBlob, durationMs, (fixedBlob: Blob) => {
+          const url = URL.createObjectURL(fixedBlob);
+          if (playbackUrlRef.current) URL.revokeObjectURL(playbackUrlRef.current);
+          setPlaybackUrl(url);
+          setRecordState('done');
+          onRecorded(fixedBlob);
+          stream.getTracks().forEach(t => t.stop());
+        });
       };
 
       mr.start(1000);

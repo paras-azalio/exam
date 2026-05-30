@@ -1,8 +1,87 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { adminApi, AiResultRow, ExamRow, ResultRow } from './adminApi';
 import RecordingsModal from './RecordingsModal';
 import { BACKEND_URL } from '../config';
 import { generateExamReport } from './examReportGenerator';
+
+function fmt(s: number) {
+  if (!isFinite(s)) return '0:00';
+  const m = Math.floor(s / 60), sec = Math.floor(s % 60);
+  return `${m}:${String(sec).padStart(2, '0')}`;
+}
+
+/** Custom audio player with styled progress bar (played=dark, remaining=light). */
+function FixedAudio({ src, className }: { src: string; className?: string }) {
+  const audioRef  = useRef<HTMLAudioElement>(null);
+  const [playing, setPlaying]   = useState(false);
+  const [current, setCurrent]   = useState(0);
+  const [duration, setDuration] = useState(0);
+
+  const fixDuration = useCallback(() => {
+    const el = audioRef.current;
+    if (el && !isFinite(el.duration)) el.currentTime = 1e101;
+  }, []);
+
+  const onSeeked = useCallback(() => {
+    const el = audioRef.current;
+    if (el && isFinite(el.duration) && el.currentTime > el.duration - 0.1) {
+      el.currentTime = 0;
+    }
+  }, []);
+
+  const onTimeUpdate = useCallback(() => {
+    const el = audioRef.current;
+    if (!el) return;
+    setCurrent(el.currentTime);
+    if (isFinite(el.duration)) setDuration(el.duration);
+  }, []);
+
+  const togglePlay = () => {
+    const el = audioRef.current;
+    if (!el) return;
+    if (el.paused) { el.play(); setPlaying(true); }
+    else           { el.pause(); setPlaying(false); }
+  };
+
+  const seek = (e: React.MouseEvent<HTMLDivElement>) => {
+    const el = audioRef.current;
+    if (!el || !isFinite(el.duration)) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    el.currentTime = ((e.clientX - rect.left) / rect.width) * el.duration;
+  };
+
+  const pct = duration > 0 ? Math.min((current / duration) * 100, 100) : 0;
+
+  return (
+    <div className={`flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-full px-4 py-2 ${className ?? ''}`}>
+      <audio ref={audioRef}
+        src={src}
+        onLoadedMetadata={fixDuration}
+        onSeeked={onSeeked}
+        onTimeUpdate={onTimeUpdate}
+        onEnded={() => setPlaying(false)}
+      />
+
+      {/* Play/pause */}
+      <button onClick={togglePlay} className="w-7 h-7 flex items-center justify-center shrink-0 text-gray-700 hover:text-gray-900">
+        {playing
+          ? <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+          : <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5"><polygon points="5,3 19,12 5,21"/></svg>
+        }
+      </button>
+
+      {/* Time */}
+      <span className="text-xs tabular-nums text-gray-500 shrink-0">{fmt(current)}</span>
+
+      {/* Track */}
+      <div className="relative flex-1 h-1.5 rounded-full bg-gray-200 cursor-pointer" onClick={seek}>
+        <div className="absolute inset-y-0 left-0 rounded-full bg-gray-700" style={{ width: `${pct}%` }} />
+      </div>
+
+      <span className="text-xs tabular-nums text-gray-400 shrink-0">{fmt(duration)}</span>
+    </div>
+  );
+}
 
 /** Returns true when a verbal AI row is eligible for retry in the admin UI. */
 function isRetryEligible(ar: AiResultRow): boolean {
@@ -563,7 +642,7 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
                   {audioLoading ? (
                     <div className="text-xs text-gray-400 italic">Loading audio…</div>
                   ) : audioObjectUrl ? (
-                    <audio controls src={audioObjectUrl} className="w-full h-10" />
+                    <FixedAudio src={audioObjectUrl} className="w-full h-10" />
                   ) : (
                     <div className="text-xs text-red-400 italic">Audio not available</div>
                   )}
