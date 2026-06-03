@@ -143,10 +143,10 @@ const filteredExams = debouncedQuery
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-slate-800 text-white px-6 py-4 flex items-center justify-between">
-        <div>
-          <span className="font-bold text-lg">QuickScreen</span>
-          <span className="ml-2 text-slate-400 text-sm">Admin</span>
+      <header className="bg-slate-800 text-white px-6 py-4 flex items-center justify-between relative">
+        <img src="https://www.azalio.io/wp-content/uploads/2021/12/logo@3x-e1645343368292.png" alt="Logo" className="h-11" />
+        <div className="absolute left-1/2 -translate-x-1/2 flex items-baseline">
+          <span className="font-bold text-lg">EXAMS</span>
         </div>
         <div className="flex items-center gap-3">
           {/* Trash toggle */}
@@ -198,29 +198,29 @@ const filteredExams = debouncedQuery
             </div>
 
             <div className="relative mb-6">
-  <svg
-    className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"
-    fill="none" stroke="currentColor" viewBox="0 0 24 24"
-  >
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-      d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
-  </svg>
-  <input
-    type="text"
-    value={searchQuery}
-    onChange={e => handleSearchChange(e.target.value)}
-    placeholder="Search by exam code or title…"
-    className="w-full pl-9 pr-9 py-2.5 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-300 transition"
-  />
-  {searchQuery && (
-    <button
-      onClick={() => { setSearchQuery(''); setDebouncedQuery(''); }}
-      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition"
-    >
-      ✕
-    </button>
-  )}
-</div>
+            <svg
+              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"
+              fill="none" stroke="currentColor" viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
+            </svg>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => handleSearchChange(e.target.value)}
+              placeholder="Search by exam code or title…"
+              className="w-full pl-9 pr-9 py-2.5 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-300 transition"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => { setSearchQuery(''); setDebouncedQuery(''); }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition"
+              >
+                ✕
+              </button>
+            )}
+          </div>
 
 
             {loading ? (
