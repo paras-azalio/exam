@@ -574,7 +574,7 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
               {verbalDetailPopup.transcript && (
                 <div className="px-6 py-4 bg-amber-50">
                   <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide mb-2">Transcript</p>
-                  <p className="text-sm text-gray-700 leading-relaxed italic">"{verbalDetailPopup.transcript}"</p>
+                  <p className="text-sm text-gray-700 leading-relaxed italic whitespace-pre-line">{verbalDetailPopup.transcript}</p>
                 </div>
               )}
 
