@@ -552,7 +552,20 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
               {verbalDetailPopup.expectedReply && (
                 <div className="px-6 py-4">
                   <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Expected Reply</p>
-                  <p className="text-xs text-gray-500 leading-relaxed whitespace-pre-line">{verbalDetailPopup.expectedReply}</p>
+                  {/* <p className="text-xs text-gray-500 leading-relaxed whitespace-pre-line">{verbalDetailPopup.expectedReply}</p> */}
+                  <div className="text-xs text-gray-500 leading-relaxed space-y-1">
+                  {verbalDetailPopup.expectedReply
+                    .split(',')
+                    .map(r => r.trim())
+                    .filter(r => r)
+                    .map((reply, i) => (
+                      <div key={i} className="flex gap-2">
+                        <span className="font-semibold text-gray-400">{i + 1}.</span>
+                        <span>{reply}</span>
+                      </div>
+                    ))
+                  }
+                </div>
                 </div>
               )}
 
