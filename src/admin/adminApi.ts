@@ -35,6 +35,7 @@ export interface AiResultRow {
   status: 'PENDING' | 'SENT' | 'SUCCESS' | 'FAILED';
   transcript: string | null;
   feedback: string | null;
+  type: 'VERBAL' | 'SUBJECTIVE' | null;
 }
 
 export interface ResultRow {

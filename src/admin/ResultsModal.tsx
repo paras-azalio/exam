@@ -19,7 +19,7 @@ interface Props {
   onClose: () => void;
 }
 
-type SortKey = 'studentName' | 'studentEmail' | 'totalScore' | 'score' | 'verbalResult' | 'grade' | 'timeTaken' | 'createdAt';
+type SortKey = 'studentName' | 'studentEmail' | 'totalScore' | 'score' | 'verbalResult' |'subjectiveResult'| 'grade' | 'timeTaken' | 'createdAt';
 type SortDir = 'asc' | 'desc';
 
 /** Returns duration in seconds between startedAt and createdAt, or null. */
@@ -60,6 +60,8 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
   const [expandedVerbal, setExpandedVerbal] = useState<Set<number>>(new Set());
   const [retrying, setRetrying]             = useState<Set<number>>(new Set());
   const [verbalDetailPopup, setVerbalDetailPopup] = useState<AiResultRow | null>(null);
+  const [subjectiveDetailPopup, setSubjectiveDetailPopup] = useState<AiResultRow | null>(null);
+  const [expandedSubjective, setExpandedSubjective] = useState<Set<number>>(new Set());
   const [audioObjectUrl, setAudioObjectUrl] = useState<string | null>(null);
   const [audioLoading, setAudioLoading]     = useState(false);
 
@@ -143,7 +145,8 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
       case 'studentEmail': return row.studentEmail ?? '';
       case 'totalScore':   return row.totalScore;
       case 'score':        return row.score ?? -Infinity;
-      case 'verbalResult': return (row.aiResults ?? []).reduce((s, ar) => s + (ar.aiScore ?? 0), 0) || -Infinity;
+      case 'verbalResult':    return (row.aiResults ?? []).filter(ar => ar.type !== 'SUBJECTIVE').reduce((s, ar) => s + (ar.aiScore ?? 0), 0) || -Infinity;
+      case 'subjectiveResult': return (row.aiResults ?? []).filter(ar => ar.type === 'SUBJECTIVE').reduce((s, ar) => s + (ar.aiScore ?? 0), 0) || -Infinity;
       case 'grade':        return row.grade ?? '';
       case 'timeTaken':    return timeTakenSeconds(row) ?? -1;
       case 'createdAt':    return row.createdAt ?? '';
@@ -237,6 +240,9 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
                   <th className={thClass('verbalResult')} onClick={() => toggleSort('verbalResult')}>
                     Verbal <SortIcon col="verbalResult" />
                   </th>
+                   <th className={thClass('subjectiveResult')} onClick={() => toggleSort('subjectiveResult')}>
+                    Subjective <SortIcon col="subjectiveResult" />
+                  </th>
                   <th className={thClass('grade')} onClick={() => toggleSort('grade')}>
                     Grade <SortIcon col="grade" />
                   </th>
@@ -259,11 +265,18 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
                     ? Math.round((row.score / row.totalMarks) * 100)
                     : null;
                   const aiResults      = row.aiResults ?? [];
-                  const verbalCount    = aiResults.length;
+                  const verbalResults     = aiResults.filter(ar => ar.type !== 'SUBJECTIVE');
+                  const subjectiveResults = aiResults.filter(ar => ar.type === 'SUBJECTIVE');
+                  const verbalCount    = verbalResults.length;
+                  const subjectiveCount   = subjectiveResults.length;
                   const isVerbalExp    = expandedVerbal.has(row.id);
-                  const verbalScore    = aiResults.reduce((s, ar) => s + (ar.aiScore ?? 0), 0);
-                  const verbalTotalMax = aiResults.reduce((s, ar) => s + (ar.maxMarks ?? 0), 0);
+                  const isSubjectiveExp   = expandedSubjective.has(row.id);
+                  const verbalScore    = verbalResults.reduce((s, ar) => s + (ar.aiScore ?? 0), 0);
+                  const verbalTotalMax = verbalResults.reduce((s, ar) => s + (ar.maxMarks ?? 0), 0);
                   const verbalAllDone  = verbalCount > 0 && aiResults.every(ar => ar.status === 'SUCCESS');
+                  const subjectiveScore   = subjectiveResults.reduce((s, ar) => s + (ar.aiScore ?? 0), 0);
+                  const subjectiveTotalMax = subjectiveResults.reduce((s, ar) => s + (ar.maxMarks ?? 0), 0);
+                  const subjectiveAllDone = subjectiveCount > 0 && subjectiveResults.every(ar => ar.status === 'SUCCESS');
                   // totalScore and totalMaxMarks come pre-computed from the server
                   const totalMax  = row.totalMaxMarks;
                   const totalPct  = totalMax > 0
@@ -340,7 +353,7 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
                         )}
                       </td>
                       {/* Verbal score cell */}
-                      <td className="px-3 py-3">
+                     <td className="px-3 py-3">
                         {verbalCount === 0 ? (
                           <span className="text-xs text-gray-300">—</span>
                         ) : (
@@ -355,7 +368,7 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
                           >
                             {verbalAllDone
                               ? verbalScore.toFixed(2)
-                              : aiResults.some(ar => ar.status === 'SUCCESS')
+                              : verbalResults.some(ar => ar.status === 'SUCCESS')
                                 ? `${verbalScore.toFixed(2)}…`
                                 : <span className="text-gray-400 font-normal italic">Pending</span>}
                             {verbalTotalMax > 0 && (
@@ -366,6 +379,35 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
                           </button>
                         )}
                       </td>
+                      {/* Subjective score cell */}
+                      <td className="px-3 py-3">
+                        {subjectiveCount === 0 ? (
+                          <span className="text-xs text-gray-300">—</span>
+                        ) : (
+                          <button
+                            onClick={() => setExpandedSubjective(prev => {
+                              const next = new Set(prev);
+                              if (next.has(row.id)) next.delete(row.id); else next.add(row.id);
+                              return next;
+                            })}
+                            className="flex items-center gap-1 text-blue-700 font-semibold hover:underline text-xs"
+                            title="Expand subjective question details"
+                          >
+                            {subjectiveAllDone
+                              ? subjectiveScore.toFixed(2)
+                              : subjectiveResults.some(ar => ar.status === 'SUCCESS')
+                                ? `${subjectiveScore.toFixed(2)}…`
+                                : <span className="text-gray-400 font-normal italic">Pending</span>}
+                            {subjectiveTotalMax > 0 && (
+                              <span className="text-blue-500 font-normal">/ {subjectiveTotalMax}</span>
+                            )}
+                            <span className="text-blue-400 font-normal ml-0.5">({subjectiveCount}Q)</span>
+                            <span className="text-gray-400">{isSubjectiveExp ? '▾' : '▸'}</span>
+                          </button>
+                        )}
+                      </td>
+
+                      
                       <td className="px-3 py-3">
                         {row.grade ? (
                           <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-xs font-bold">
@@ -394,22 +436,21 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
                       </td>
                     </tr>
                     {/* Expanded verbal question breakdown — horizontal scrollable cards */}
-                    {isVerbalExp && verbalCount > 0 && (
-                      <tr key={`verbal-${row.id}`} className="bg-orange-50 border-t border-orange-100">
-                        <td colSpan={11} className="px-6 py-4">
-                          <p className="text-xs font-semibold text-orange-700 mb-3 text-center tracking-wide uppercase">
-                            Verbal Question Scores
+                    {isSubjectiveExp && subjectiveCount > 0 && (
+                      <tr key={`subjective-${row.id}`} className="bg-blue-50 border-t border-blue-100">
+                        <td colSpan={12} className="px-6 py-4">
+                          <p className="text-xs font-semibold text-blue-700 mb-3 text-center tracking-wide uppercase">
+                            Subjective Question Scores
                           </p>
                           <div className="flex gap-3 overflow-x-auto pb-1 justify-center">
-                            {aiResults.map(ar => {
+                            {subjectiveResults.map(ar => {
                               const eligible = isRetryEligible(ar);
                               const isRetrying = retrying.has(ar.id);
-                              // Status colours
                               const statusCfg = {
-                                SUCCESS: { border: 'border-orange-200', badge: 'bg-green-100 text-green-700',  label: 'Scored' },
-                                FAILED:  { border: 'border-red-200',    badge: 'bg-red-100 text-red-600',     label: 'Failed' },
-                                SENT:    { border: 'border-yellow-200', badge: 'bg-yellow-100 text-yellow-700', label: 'Evaluating…' },
-                                PENDING: { border: 'border-gray-200',   badge: 'bg-gray-100 text-gray-500',   label: 'Pending' },
+                                SUCCESS: { border: 'border-blue-200',   badge: 'bg-green-100 text-green-700',    label: 'Scored' },
+                                FAILED:  { border: 'border-red-200',    badge: 'bg-red-100 text-red-600',        label: 'Failed' },
+                                SENT:    { border: 'border-yellow-200', badge: 'bg-yellow-100 text-yellow-700',  label: 'Evaluating…' },
+                                PENDING: { border: 'border-gray-200',   badge: 'bg-gray-100 text-gray-500',      label: 'Pending' },
                               }[ar.status] ?? { border: 'border-gray-200', badge: 'bg-gray-100 text-gray-500', label: ar.status };
 
                               return (
@@ -418,10 +459,9 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
                                   className={`flex-shrink-0 bg-white border ${statusCfg.border} rounded-xl overflow-hidden text-center`}
                                   style={{ minWidth: '150px' }}
                                 >
-                                  {/* Score */}
                                   <div className="px-4 py-3">
                                     {ar.status === 'SUCCESS' ? (
-                                      <p className="font-bold text-orange-700 text-base whitespace-nowrap">
+                                      <p className="font-bold text-blue-700 text-base whitespace-nowrap">
                                         {Number(ar.aiScore).toFixed(2)}
                                         {ar.maxMarks ? ` / ${ar.maxMarks}` : ''} pts
                                       </p>
@@ -437,12 +477,10 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
                                       {statusCfg.label}
                                     </span>
                                   </div>
-
-                                  {/* Actions */}
                                   <div className="border-t border-gray-100 py-1.5 flex items-center justify-center gap-2">
                                     <button
-                                      onClick={() => setVerbalDetailPopup(ar)}
-                                      className="text-[11px] text-orange-600 hover:text-orange-800 font-medium transition"
+                                      onClick={() => setSubjectiveDetailPopup(ar)}
+                                      className="text-[11px] text-blue-600 hover:text-blue-800 font-medium transition"
                                     >
                                       View ↗
                                     </button>
@@ -467,6 +505,111 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
                         </td>
                       </tr>
                     )}
+                    {isVerbalExp && verbalCount > 0 && (
+  <tr
+    key={`verbal-${row.id}`}
+    className="bg-orange-50 border-t border-orange-100"
+  >
+    <td colSpan={12} className="px-6 py-4">
+      <p className="text-xs font-semibold text-orange-700 mb-3 text-center tracking-wide uppercase">
+        Verbal Question Scores
+      </p>
+
+      <div className="flex gap-3 overflow-x-auto pb-1 justify-center">
+        {verbalResults.map((ar) => {
+          const eligible = isRetryEligible(ar);
+          const isRetrying = retrying.has(ar.id);
+
+          const statusCfg =
+            {
+              SUCCESS: {
+                border: "border-orange-200",
+                badge: "bg-green-100 text-green-700",
+                label: "Scored",
+              },
+              FAILED: {
+                border: "border-red-200",
+                badge: "bg-red-100 text-red-600",
+                label: "Failed",
+              },
+              SENT: {
+                border: "border-yellow-200",
+                badge: "bg-yellow-100 text-yellow-700",
+                label: "Evaluating…",
+              },
+              PENDING: {
+                border: "border-gray-200",
+                badge: "bg-gray-100 text-gray-500",
+                label: "Pending",
+              },
+            }[ar.status] ?? {
+              border: "border-gray-200",
+              badge: "bg-gray-100 text-gray-500",
+              label: ar.status,
+            };
+
+          return (
+            <div
+              key={ar.id}
+              className={`flex-shrink-0 bg-white border ${statusCfg.border} rounded-xl overflow-hidden text-center`}
+              style={{ minWidth: "150px" }}
+            >
+              <div className="px-4 py-3">
+                {ar.status === "SUCCESS" ? (
+                  <p className="font-bold text-orange-700 text-base whitespace-nowrap">
+                    {Number(ar.aiScore).toFixed(2)}
+                    {ar.maxMarks ? ` / ${ar.maxMarks}` : ""} pts
+                  </p>
+                ) : (
+                  <p className="text-gray-400 text-sm font-medium">
+                    — {ar.maxMarks ? `/ ${ar.maxMarks} pts` : ""}
+                  </p>
+                )}
+
+                {ar.precisionLevel != null && (
+                  <p className="text-gray-400 text-[11px] mt-0.5">
+                    Precision {ar.precisionLevel}
+                  </p>
+                )}
+
+                <span
+                  className={`inline-block mt-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full ${statusCfg.badge}`}
+                >
+                  {statusCfg.label}
+                </span>
+              </div>
+
+              <div className="border-t border-gray-100 py-1.5 flex items-center justify-center gap-2">
+                <button
+                  onClick={() => setVerbalDetailPopup(ar)}
+                  className="text-[11px] text-orange-600 hover:text-orange-800 font-medium transition"
+                >
+                  View ↗
+                </button>
+
+                {eligible && (
+                  <>
+                    <span className="text-gray-200">|</span>
+
+                    <button
+                      onClick={() => retryAiResult(ar.id)}
+                      disabled={isRetrying}
+                      className="text-[11px] text-red-500 hover:text-red-700 font-medium disabled:opacity-50 transition"
+                      title="Re-fire AI evaluation"
+                    >
+                      {isRetrying ? "..." : "↺ Retry"}
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </td>
+  </tr>
+)}
+                    
                     </React.Fragment>
                   );
                 })}
@@ -495,7 +638,96 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
           onClose={() => setRecordingsRow(null)}
         />
       )}
+        {/* Subjective question detail popup */}
+      {subjectiveDetailPopup && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-[60] p-4"
+          onClick={() => setSubjectiveDetailPopup(null)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <h4 className="font-bold text-gray-800 text-sm">Subjective Question Detail</h4>
+                {subjectiveDetailPopup.status === 'SUCCESS' && subjectiveDetailPopup.aiScore != null && (
+                  <span className="text-sm font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2.5 py-0.5 rounded-full">
+                    {Number(subjectiveDetailPopup.aiScore).toFixed(2)}
+                    {subjectiveDetailPopup.maxMarks != null && subjectiveDetailPopup.maxMarks > 0 && (
+                      <span className="text-gray-400 font-normal"> / {subjectiveDetailPopup.maxMarks}</span>
+                    )} pts
+                  </span>
+                )}
+                {subjectiveDetailPopup.precisionLevel != null && (
+                  <span className="text-xs bg-gray-100 text-gray-500 px-2.5 py-0.5 rounded-full">
+                    Precision {subjectiveDetailPopup.precisionLevel}
+                  </span>
+                )}
+              </div>
+              <button onClick={() => setSubjectiveDetailPopup(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none flex-shrink-0 ml-3">✕</button>
+            </div>
 
+            <div className="flex-1 overflow-y-auto divide-y divide-gray-100">
+              {subjectiveDetailPopup.status !== 'SUCCESS' && (
+                <div className="px-6 py-4 text-center">
+                  <p className="text-xl font-semibold text-gray-400">
+                    {subjectiveDetailPopup.status === 'FAILED' ? '⚠ Failed' :
+                     subjectiveDetailPopup.status === 'SENT'   ? '⏳ Evaluating…' : '⏳ Pending'}
+                    {subjectiveDetailPopup.maxMarks ? ` / ${subjectiveDetailPopup.maxMarks} pts` : ''}
+                  </p>
+                </div>
+              )}
+
+              <div className="px-6 py-4">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Question</p>
+                <p className="text-sm text-gray-700 leading-relaxed">{subjectiveDetailPopup.question}</p>
+              </div>
+
+              {subjectiveDetailPopup.expectedReply && (
+                <div className="px-6 py-4">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Expected Reply</p>
+                  <p className="text-xs text-gray-500 leading-relaxed whitespace-pre-line">{subjectiveDetailPopup.expectedReply}</p>
+                </div>
+              )}
+
+              {/* Student's written answer */}
+              {subjectiveDetailPopup.audioPath && (
+                <div className="px-6 py-4 bg-gray-50">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Student's Answer</p>
+                  <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-line">{subjectiveDetailPopup.audioPath}</p>
+                </div>
+              )}
+
+              {subjectiveDetailPopup.feedback && (
+                <div className="px-6 py-4 bg-green-50">
+                  <p className="text-xs font-semibold text-green-600 uppercase tracking-wide mb-2">AI Feedback</p>
+                  <div className="flex gap-2">
+                    <span className="text-base mt-0.5 flex-shrink-0">💬</span>
+                    <p className="text-sm text-gray-700 leading-relaxed">{subjectiveDetailPopup.feedback}</p>
+                  </div>
+                </div>
+              )}
+
+              {(subjectiveDetailPopup.initiatedAt || subjectiveDetailPopup.receivedAt) && (
+                <div className="px-6 py-3 flex flex-wrap gap-4 text-xs text-gray-400">
+                  {subjectiveDetailPopup.initiatedAt && <span>Sent: {new Date(subjectiveDetailPopup.initiatedAt).toLocaleString()}</span>}
+                  {subjectiveDetailPopup.receivedAt  && <span>Received: {new Date(subjectiveDetailPopup.receivedAt).toLocaleString()}</span>}
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-3 border-t border-gray-100 flex justify-end flex-shrink-0">
+              <button
+                onClick={() => setSubjectiveDetailPopup(null)}
+                className="px-5 py-2 text-sm bg-slate-800 text-white rounded-lg hover:bg-slate-900 transition"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Verbal question detail popup */}
       {verbalDetailPopup && (
         <div
@@ -552,7 +784,20 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
               {verbalDetailPopup.expectedReply && (
                 <div className="px-6 py-4">
                   <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Expected Reply</p>
-                  <p className="text-xs text-gray-500 leading-relaxed whitespace-pre-line">{verbalDetailPopup.expectedReply}</p>
+                  {/* <p className="text-xs text-gray-500 leading-relaxed whitespace-pre-line">{verbalDetailPopup.expectedReply}</p> */}
+                  <div className="text-xs text-gray-500 leading-relaxed space-y-1">
+                  {verbalDetailPopup.expectedReply
+                    .split(',')
+                    .map(r => r.trim())
+                    .filter(r => r)
+                    .map((reply, i) => (
+                      <div key={i} className="flex gap-2">
+                        <span className="font-semibold text-gray-400">{i + 1}.</span>
+                        <span>{reply}</span>
+                      </div>
+                    ))
+                  }
+                </div>
                 </div>
               )}
 
