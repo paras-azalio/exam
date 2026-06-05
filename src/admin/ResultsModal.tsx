@@ -358,11 +358,15 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
                           <span className="text-xs text-gray-300">—</span>
                         ) : (
                           <button
-                            onClick={() => setExpandedVerbal(prev => {
+                            onClick={() => {
+                              setExpandedSubjective(prev => {const next=new Set(prev); next.delete(row.id);return next;});
+                              setSubjectiveDetailPopup(null);
+                              setExpandedVerbal(prev => {
                               const next = new Set(prev);
                               if (next.has(row.id)) next.delete(row.id); else next.add(row.id);
                               return next;
-                            })}
+                            });
+                          }}
                             className="flex items-center gap-1 text-orange-700 font-semibold hover:underline text-xs"
                             title="Expand verbal question details"
                           >
@@ -385,11 +389,15 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
                           <span className="text-xs text-gray-300">—</span>
                         ) : (
                           <button
-                            onClick={() => setExpandedSubjective(prev => {
-                              const next = new Set(prev);
+                            onClick={() =>{
+                             setExpandedVerbal(prev => {const next=new Set(prev);next.delete(row.id);return next;});
+                             closeVerbalDetail();
+                             setExpandedSubjective(prev=>{
+                             const next=new Set(prev);
                               if (next.has(row.id)) next.delete(row.id); else next.add(row.id);
                               return next;
-                            })}
+                            });
+                            }}
                             className="flex items-center gap-1 text-blue-700 font-semibold hover:underline text-xs"
                             title="Expand subjective question details"
                           >
@@ -479,7 +487,7 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
                                   </div>
                                   <div className="border-t border-gray-100 py-1.5 flex items-center justify-center gap-2">
                                     <button
-                                      onClick={() => setSubjectiveDetailPopup(ar)}
+                                      onClick={() => { closeVerbalDetail();setSubjectiveDetailPopup(ar)}}
                                       className="text-[11px] text-blue-600 hover:text-blue-800 font-medium transition"
                                     >
                                       View ↗
@@ -581,7 +589,7 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
 
               <div className="border-t border-gray-100 py-1.5 flex items-center justify-center gap-2">
                 <button
-                  onClick={() => setVerbalDetailPopup(ar)}
+                  onClick={() => { setSubjectiveDetailPopup(null);setVerbalDetailPopup(ar)}}
                   className="text-[11px] text-orange-600 hover:text-orange-800 font-medium transition"
                 >
                   View ↗
