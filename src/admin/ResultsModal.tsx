@@ -700,10 +700,10 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
               )}
 
               {/* Student's written answer */}
-              {subjectiveDetailPopup.audioPath && (
+              {(subjectiveDetailPopup.inputText|| subjectiveDetailPopup.audioPath)   && (
                 <div className="px-6 py-4 bg-gray-50">
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Student's Answer</p>
-                  <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-line">{subjectiveDetailPopup.audioPath}</p>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Candidate Answer</p>
+                  <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-line">{subjectiveDetailPopup.inputText|| subjectiveDetailPopup.audioPath}</p>
                 </div>
               )}
 
