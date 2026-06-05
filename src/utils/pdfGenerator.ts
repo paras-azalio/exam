@@ -184,6 +184,7 @@ interface McqDetailRow {
   correct:        boolean;
   marksAwarded:   number;
   totalMarks:     number;
+  expectedReply?: string | null;
 }
 
 function esc(s: string | null | undefined): string {
@@ -260,13 +261,15 @@ export const generateAdminPDF = (
         : d.userAnswer ? [d.userAnswer as string] : [];
 
       let optionsHTML = '';
-      if (d.questionType === 'subjective') {
-        const userAns = userIds.join(' / ') || '(Not answered)';
-        const corrAns = correctIds.join(' / ') || '—';
+        if (d.questionType === 'subjective') {
+        const userAns     = d.userAnswer
+          ? Array.isArray(d.userAnswer) ? (d.userAnswer as string[]).join(' / ') : String(d.userAnswer)
+          : '(Not answered)';
+        const expectedAns = d.expectedReply ? d.expectedReply : correctIds.join(' / ') || '—';
         optionsHTML = `
           <div class="subj-answers">
             <div><strong>Answer:</strong> ${esc(userAns)}</div>
-            <div class="correct-hint"><strong>Correct:</strong> ${esc(corrAns)}</div>
+            <div class="correct-hint"><strong>Expected answer:</strong> ${esc(expectedAns)}</div>
           </div>`;
       } else if (d.options?.length) {
         optionsHTML = d.options.map(opt => {

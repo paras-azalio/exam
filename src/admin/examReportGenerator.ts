@@ -11,6 +11,7 @@ interface McqDetail {
   correct:        boolean;
   marksAwarded:   number;
   totalMarks:     number;
+  expectedReply?: string | null;
 }
 
 function timeTaken(row: ResultRow): string {
@@ -218,13 +219,15 @@ function buildMcqSection(details: McqDetail[], cardIdx: number): string {
       ? d.userAnswer as string[]
       : d.userAnswer ? [d.userAnswer as string] : [];
 
-    if (d.questionType === 'subjective') {
-      const userAns  = userIds.join(' / ') || '(Not answered)';
-      const corrAns  = correctIds.join(' / ') || '—';
+      if (d.questionType === 'subjective') {
+      const userAns     = d.userAnswer
+        ? Array.isArray(d.userAnswer) ? (d.userAnswer as string[]).join(' / ') : String(d.userAnswer)
+        : '(Not answered)';
+      const expectedAns = d.expectedReply ? d.expectedReply : correctIds.join(' / ') || '—';
       optionsHtml = `
         <div style="background:#f9fafb;border-radius:6px;padding:10px 14px;font-size:13px">
           <div style="margin-bottom:5px"><strong>Answer:</strong> ${escHtml(userAns)}</div>
-          <div style="color:#16a34a"><strong>Correct:</strong> ${escHtml(corrAns)}</div>
+          <div style="color:#16a34a"><strong>Expected answer:</strong> ${escHtml(expectedAns)}</div>
         </div>`;
     } else if (d.options && d.options.length > 0) {
       optionsHtml = d.options.map(opt => {
@@ -340,6 +343,7 @@ function buildCandidateCard(row: ResultRow, index: number): string {
       </div>
 
       <!-- MCQ + Verbal sections -->
+      <!-- MCQ + Verbal sections -->
       <div style="padding:20px">
         ${(() => {
           let mcqHtml = '';
@@ -351,7 +355,12 @@ function buildCandidateCard(row: ResultRow, index: number): string {
           } catch { /* ignore parse errors */ }
           return mcqHtml;
         })()}
-        ${aiResults.length > 0 ? buildVerbalSection(aiResults, index) : '<div style="color:#9ca3af;font-style:italic;font-size:13px;margin-top:16px">No verbal questions for this submission.</div>'}
+        ${(() => {
+          const verbalOnly = aiResults.filter(ar => ar.type !== 'SUBJECTIVE');
+          return verbalOnly.length > 0
+            ? buildVerbalSection(verbalOnly, index)
+            : '<div style="color:#9ca3af;font-style:italic;font-size:13px;margin-top:16px">No verbal questions for this submission.</div>';
+        })()}
       </div>
 
     </div><!-- end collapsible body -->
