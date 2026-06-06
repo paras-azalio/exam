@@ -158,12 +158,14 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
               <h2 className="text-xl font-bold text-gray-800 mb-4">Performance Summary</h2>
               {/* Verbal questions are scored asynchronously — exclude from MCQ counters */}
               {(() => {
-                const mcq     = details.filter((d) => d.questionType !== 'verbal');
+                const mcq     = details.filter((d) => d.questionType !== 'verbal' && d.questionType !== 'subjective');
                 const verbal  = details.filter((d) => d.questionType === 'verbal');
+                const subjective = details.filter((d) => d.questionType === 'subjective');
                 const correct = mcq.filter((d) => d.correct).length;
-                const wrong   = mcq.filter((d) => !d.correct && d.marksAwarded < 0).length;
-                const skip    = mcq.filter((d) => d.marksAwarded === 0 && !d.correct).length;
-                const cols    = verbal.length > 0 ? 5 : 4;
+                const wrong   = mcq.filter((d) => !d.correct && d.userAnswer !=null).length;
+                const skip    = mcq.filter((d) => d.userAnswer==null).length;
+                const aiCount    = verbal.length + subjective.length;
+                const cols    = aiCount > 0 ? 5 : 4;
                 return (
                   <>
                     <div className={`grid grid-cols-2 md:grid-cols-${cols} gap-4 mb-4`}>
