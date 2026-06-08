@@ -440,6 +440,20 @@ function QuestionCard({ q, index, expanded, onToggle, onUpdate, onRemove, onUpda
                 onChange={e => onUpdate({ timeLimit: e.target.value })}
                 className="w-24 px-2 py-1.5 text-sm border border-gray-300 rounded-lg outline-none" />
             </label>
+            {q.type === 'subjective' && (
+            <label className="block">
+                <span className="text-xs font-medium text-gray-600 block mb-0.5">AI Precision level (1–5)</span>
+                <input
+                  type="number"
+                  value={q.precision}
+                  min={1}
+                  max={5}
+                  onChange={e => onUpdate({ precision: Math.min(5, Math.max(1, Number(e.target.value))) })}
+                  className="w-20 px-2 py-1.5 text-sm border border-gray-300 rounded-lg outline-none"
+                />
+                <span className="text-xs text-gray-400 block mt-0.5">1 lenient → 5 strict</span>
+              </label>
+              )}
           </div>
 
           {/* MCQ options */}

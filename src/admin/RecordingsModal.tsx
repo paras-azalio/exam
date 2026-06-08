@@ -249,7 +249,9 @@ export default function RecordingsModal({ creds, result, examCode, onClose }: Pr
       result.totalScore,
       result.totalMaxMarks,
       result.grade,
-      result.aiResults.map(ar => ({
+      result.aiResults
+      .filter(ar => ar.type !== 'SUBJECTIVE')
+      .map(ar => ({
         questionId:    ar.questionId,
         question:      ar.question,
         expectedReply: ar.expectedReply,

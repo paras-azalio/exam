@@ -30,11 +30,13 @@ export interface AiResultRow {
   maxMarks: number | null;
   expectedReply: string | null;
   audioPath: string | null;
+  inputText: string | null;
   initiatedAt: string | null;   // ISO datetime
   receivedAt: string | null;    // ISO datetime
   status: 'PENDING' | 'SENT' | 'SUCCESS' | 'FAILED';
   transcript: string | null;
   feedback: string | null;
+  type: 'VERBAL' | 'SUBJECTIVE' | null;
 }
 
 export interface ResultRow {

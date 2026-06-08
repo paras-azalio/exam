@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { adminApi, ExamRow } from './adminApi';
 import ExamFormModal from './ExamFormModal';
 import GenerateLinkModal from './GenerateLinkModal';
@@ -26,6 +26,10 @@ export default function AdminPanel({ creds, onLogout }: Props) {
   const [permDeleteId, setPermDeleteId] = useState<number | null>(null);  // confirm permanent delete
   const [linkExam, setLinkExam]         = useState<ExamRow | null>(null);
   const [resultsExam, setResultsExam]   = useState<ExamRow | null>(null);
+
+  const [searchQuery, setSearchQuery]   = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -119,15 +123,30 @@ export default function AdminPanel({ creds, onLogout }: Props) {
   const fmtDate = (iso: string | null | undefined) =>
     iso ? new Date(iso).toLocaleDateString() : '—';
 
+  const handleSearchChange = (value: string) => {
+  setSearchQuery(value);
+  if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+  searchDebounceRef.current = setTimeout(() => {
+    setDebouncedQuery(value.trim().toLowerCase());
+  }, 500);
+};
+
+const filteredExams = debouncedQuery
+  ? exams.filter(e =>
+      e.examCode.toLowerCase().includes(debouncedQuery) ||
+      e.examTitle.toLowerCase().includes(debouncedQuery)
+    )
+  : exams;
+
   // ── render ──────────────────────────────────────────────────────────────────
 
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-slate-800 text-white px-6 py-4 flex items-center justify-between">
-        <div>
-          <span className="font-bold text-lg">QuickScreen</span>
-          <span className="ml-2 text-slate-400 text-sm">Admin</span>
+      <header className="bg-slate-800 text-white px-6 py-4 flex items-center justify-between relative">
+        <img src="https://www.azalio.io/wp-content/uploads/2021/12/logo@3x-e1645343368292.png" alt="Logo" className="h-11" />
+        <div className="absolute left-1/2 -translate-x-1/2 flex items-baseline">
+          <span className="font-bold text-lg">EXAMS</span>
         </div>
         <div className="flex items-center gap-3">
           {/* Trash toggle */}
@@ -178,6 +197,32 @@ export default function AdminPanel({ creds, onLogout }: Props) {
               </button>
             </div>
 
+            <div className="relative mb-6">
+            <svg
+              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"
+              fill="none" stroke="currentColor" viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
+            </svg>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => handleSearchChange(e.target.value)}
+              placeholder="Search by exam code or title…"
+              className="w-full pl-9 pr-9 py-2.5 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-300 transition"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => { setSearchQuery(''); setDebouncedQuery(''); }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+
             {loading ? (
               <p className="text-gray-500 text-sm">Loading…</p>
             ) : exams.length === 0 ? (
@@ -201,7 +246,13 @@ export default function AdminPanel({ creds, onLogout }: Props) {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100">
-                        {exams.map(exam => (
+                       {filteredExams.length === 0 && debouncedQuery ? (
+                          <tr>
+                            <td colSpan={5} className="px-4 py-10 text-center text-sm text-gray-400">
+                              No exams match "<span className="font-medium">{debouncedQuery}</span>"
+                            </td>
+                          </tr>
+                        ) : filteredExams.map(exam => (
                           <tr key={exam.id} className="hover:bg-gray-50">
                             <td className="px-4 py-3 font-mono font-semibold text-gray-800 whitespace-nowrap">{exam.examCode}</td>
                             <td className="px-4 py-3 text-gray-700">{exam.examTitle}</td>
@@ -247,8 +298,12 @@ export default function AdminPanel({ creds, onLogout }: Props) {
 
                 {/* Mobile cards */}
                 <div className="md:hidden space-y-3">
-                  {exams.map(exam => (
-                    <div key={exam.id} className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+                  {filteredExams.length === 0 && debouncedQuery ? (
+                  <div className="text-center py-10 text-sm text-gray-400">
+                    No exams match "<span className="font-medium">{debouncedQuery}</span>"
+                  </div>
+                ) : filteredExams.map(exam => (
+                  <div key={exam.id} className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
                       <div className="flex items-start justify-between gap-2 mb-2">
                         <div>
                           <span className="font-mono font-bold text-gray-800 text-sm">{exam.examCode}</span>
