@@ -79,6 +79,17 @@ export interface Answer {
   isMarked?: boolean;
 }
 
+// --- GAZE TRACKING START ---
+export interface GazeEvent {
+  type: 'LOOK_AWAY' | 'NO_FACE' | 'MULTI_FACE';
+  direction?: 'LEFT' | 'RIGHT' | 'UP' | 'DOWN' | 'CENTER';
+  timestamp: number;
+  duration: number;
+  questionId?: string;
+  section?: 'mcq' | 'verbal' | 'subjective';
+}
+// --- GAZE TRACKING END ---
+
 export interface QuestionStatus {
   questionId: string;
   status: 'not-visited' | 'not-answered' | 'answered' | 'marked';

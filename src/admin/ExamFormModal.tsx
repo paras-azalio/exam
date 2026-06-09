@@ -14,10 +14,10 @@ interface Props {
 }
 
 // ── tiny helpers ──────────────────────────────────────────────────────────────
-const Input = (p: React.InputHTMLAttributes<HTMLInputElement> & { label: string }) => (
+const Input = ({ label, ...p }: React.InputHTMLAttributes<HTMLInputElement> & { label: string }) => (
   <label className="block">
-    <span className="text-xs font-medium text-gray-600 mb-0.5 block">{p.label}</span>
-    <input {...p} label={undefined}
+    <span className="text-xs font-medium text-gray-600 mb-0.5 block">{label}</span>
+    <input {...p}
       className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-400 outline-none" />
   </label>
 );

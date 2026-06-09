@@ -3,6 +3,9 @@ import { adminApi, AiResultRow, ExamRow, ResultRow } from './adminApi';
 import RecordingsModal from './RecordingsModal';
 import { BACKEND_URL } from '../config';
 import { generateExamReport } from './examReportGenerator';
+// --- GAZE TRACKING START ---
+import { GazeEvent } from '../types/exam';
+// --- GAZE TRACKING END ---
 
 function fmt(s: number) {
   if (!isFinite(s)) return '0:00';
@@ -127,6 +130,33 @@ function formatDate(iso: string | null): string {
     timeStyle: 'short',
   });
 }
+
+// --- GAZE TRACKING START ---
+function parseGazeEvents(raw: string | null | undefined): GazeEvent[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed as GazeEvent[] : [];
+  } catch {
+    return [];
+  }
+}
+
+function gazeCounts(events: GazeEvent[]) {
+  return {
+    lookAway: events.filter(e => e.type === 'LOOK_AWAY').length,
+    noFace: events.filter(e => e.type === 'NO_FACE').length,
+    multiFace: events.filter(e => e.type === 'MULTI_FACE').length,
+  };
+}
+
+function formatGazeTime(seconds: number | undefined): string {
+  const value = Number(seconds ?? 0);
+  const m = Math.floor(value / 60);
+  const s = Math.floor(value % 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+// --- GAZE TRACKING END ---
 
 export default function ResultsModal({ creds, exam, onClose }: Props) {
   const [rows, setRows]             = useState<ResultRow[]>([]);
@@ -253,7 +283,7 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
     return <span className="text-slate-600 ml-1">{sortDir === 'asc' ? '↑' : '↓'}</span>;
   };
 
-  const thClass = (col: SortKey) =>
+  const thClass = (_col: SortKey) =>
     `px-3 py-2.5 text-left text-xs font-semibold text-gray-600 cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap`;
 
   return (
@@ -360,6 +390,10 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
                   const totalMax  = row.totalMaxMarks;
                   const totalPct  = totalMax > 0
                     ? Math.round((row.totalScore / totalMax) * 100) : null;
+                  // --- GAZE TRACKING START ---
+                  const gazeEvents = parseGazeEvents(row.gazeEvents);
+                  const gaze = gazeCounts(gazeEvents);
+                  // --- GAZE TRACKING END ---
 
                   return (
                     <React.Fragment key={row.id}>
@@ -517,6 +551,49 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
                             {row.violations}
                           </span>
                         ) : <span className="text-gray-300 text-xs">—</span>}
+                        {/* --- GAZE TRACKING START --- */}
+                        {gazeEvents.length > 0 && (
+                          <div className="mt-1 w-44 text-left mx-auto">
+                            <div className="grid grid-cols-3 gap-1 text-[10px] text-center">
+                              <span className="rounded bg-orange-50 text-orange-700 px-1 py-0.5" title="Look-away events">
+                                LA {gaze.lookAway}
+                              </span>
+                              <span className="rounded bg-red-50 text-red-700 px-1 py-0.5" title="No-face events">
+                                NF {gaze.noFace}
+                              </span>
+                              <span className="rounded bg-purple-50 text-purple-700 px-1 py-0.5" title="Multiple-face events">
+                                MF {gaze.multiFace}
+                              </span>
+                            </div>
+                            <details className="mt-1 text-[10px] text-gray-500">
+                              <summary className="cursor-pointer text-center hover:text-gray-700">
+                                Gaze events
+                              </summary>
+                              <div className="mt-1 max-h-28 overflow-y-auto space-y-1 rounded border border-gray-100 bg-gray-50 p-1">
+                                {gazeEvents
+                                  .slice()
+                                  .sort((a, b) => a.timestamp - b.timestamp)
+                                  .map((event, idx) => (
+                                    <div key={`${row.id}-gaze-${idx}`} className="leading-snug">
+                                      <span className="font-mono">{formatGazeTime(event.timestamp)}</span>
+                                      {' '}
+                                      <span className="font-semibold">{event.type}</span>
+                                      {event.direction ? ` ${event.direction}` : ''}
+                                      <span className="text-gray-400">
+                                        {' '}({Number(event.duration ?? 0).toFixed(1)}s)
+                                      </span>
+                                      {event.questionId && (
+                                        <span className="block text-gray-400">
+                                          {event.questionId}{event.section ? ` / ${event.section}` : ''}
+                                        </span>
+                                      )}
+                                    </div>
+                                  ))}
+                              </div>
+                            </details>
+                          </div>
+                        )}
+                        {/* --- GAZE TRACKING END --- */}
                       </td>
                       <td className="px-3 py-3 text-gray-500 text-xs">
                         {formatDate(row.createdAt)}

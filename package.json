@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.app.json"
   },
   "dependencies": {
+    "@mediapipe/face_mesh": "^0.4.1633559619",
     "@supabase/supabase-js": "^2.57.4",
     "fix-webm-duration": "^1.0.6",
     "lucide-react": "^0.344.0",
