@@ -248,14 +248,12 @@ export const generateAdminPDF = (
           }
         } catch { /* ignore */ }
         const hasMcq  = mcqOnlyMax > 0;
-        const hasSubj = subjMax > 0;
         const verbalOnly = verbalRows.filter(r => r.type !== 'SUBJECTIVE');
         const subjAiRows = verbalRows.filter(r => r.type === 'SUBJECTIVE');
         const hasVerbal  = verbalOnly.length > 0;
         const hasSubjAi  = subjAiRows.length > 0;
         return `
           ${hasMcq  ? `<p style="margin-top:6px;font-size:14px;color:#555">MCQ: ${mcqOnlyScore.toFixed(2)} / ${mcqOnlyMax}</p>` : ''}
-          ${hasSubj ? `<p style="margin-top:4px;font-size:14px;color:#555">Subjective: ${subjScore.toFixed(2)} / ${subjMax}</p>` : ''}
           ${hasSubjAi ? `<p style="margin-top:4px;font-size:14px;color:#555">Subjective: ${subjAiRows.reduce((s,r)=>s+(r.aiScore??0),0).toFixed(2)} / ${subjAiRows.reduce((s,r)=>s+(r.maxMarks??0),0)}</p>` : ''}
           ${hasVerbal ? `<p style="margin-top:4px;font-size:14px;color:#555">Verbal: ${verbalOnly.reduce((s,r)=>s+(r.aiScore??0),0).toFixed(2)} / ${verbalOnly.reduce((s,r)=>s+(r.maxMarks??0),0)}</p>` : ''}
         `;
@@ -343,17 +341,29 @@ export const generateAdminPDF = (
         subjDetails = parsed.filter(d => d.questionType === 'subjective');
       }
     } catch { /* non-critical */ }
+    const subjAiLookup: Record<string, AdminPDFVerbalRow> = {};
+    for (const r of verbalRows) {
+      if (r.type === 'SUBJECTIVE') subjAiLookup[r.questionId] = r;
+    }
 
     if (subjDetails.length > 0) {
       const subjBlocks = subjDetails.map((d, i) => {
         const bodyId = `qb-subj-${i}`;
         const iconId = `qi-subj-${i}`;
+        const ai = subjAiLookup[d.questionId];
+        const aiScore      = ai?.status === 'SUCCESS' && ai.aiScore != null ? ai.aiScore : null;
+        const displayScore = aiScore !== null ? aiScore : d.marksAwarded;
+        const markSign  = displayScore > 0 ? '+' : '';
+        const markColor = displayScore > 0 ? 'color:green' : displayScore < 0 ? 'color:red' : 'color:#888';
         const notAttempted = d.userAnswer === null || d.userAnswer === undefined ||
           (Array.isArray(d.userAnswer) && d.userAnswer.length === 0);
-        const markSign  = d.marksAwarded > 0 ? '+' : '';
-        const badgeText = d.correct ? '✓ Correct' : notAttempted ? '— Skipped' : '✗ Wrong';
-        const badgeCls  = d.correct ? 'correct' : notAttempted ? 'skipped' : 'incorrect';
-        const markColor = d.marksAwarded > 0 ? 'color:green' : d.marksAwarded < 0 ? 'color:red' : 'color:#888';
+        
+        const badgeText =  ai?.status === 'SUCCESS'
+          ? '✓ AI Scored'
+          : (ai?.status === 'PENDING' || ai?.status === 'SENT')
+            ? '⏳ Pending AI'
+            : notAttempted ? '— Skipped' : '✗ Wrong';
+        const badgeCls  =  ai?.status === 'SUCCESS' ? 'correct' : notAttempted ? 'skipped' : 'incorrect';
 
         const correctIds: string[] = Array.isArray(d.correctAnswer)
           ? d.correctAnswer as string[]
@@ -368,8 +378,10 @@ export const generateAdminPDF = (
           <div class="subj-answers">
             <div><strong>Answer:</strong> ${esc(userAns)}</div>
             <div class="correct-hint"><strong>Expected answer:</strong> ${esc(expectedAns)}</div>
-          </div>`;
-
+          </div>
+          ${ai?.feedback
+              ? `<div class="verbal-feedback" style="margin-top:8px"><div class="vf-label">AI Feedback</div><div class="vf-text">${esc(ai.feedback)}</div></div>`
+              : ''}`;
         return `
           <div class="q-block subjective-block">
             <div class="q-header collapsible-header" onclick="toggleQ('${bodyId}','${iconId}')">
@@ -379,7 +391,7 @@ export const generateAdminPDF = (
               </div>
               <div class="q-header-right">
                 <span class="${badgeCls}">${badgeText}</span>
-                <span class="q-marks" style="${markColor}">${markSign}${d.marksAwarded.toFixed(2)} / ${d.totalMarks}</span>
+                <span class="q-marks" style="${markColor}">${markSign}${displayScore.toFixed(2)} / ${d.totalMarks}</span>
                 <span class="toggle-icon" id="${iconId}">▾</span>
               </div>
             </div>
@@ -398,11 +410,12 @@ export const generateAdminPDF = (
 
   // ── Verbal section ─────────────────────────────────────────────────────────
   let verbalHTML = '';
-  if (verbalRows.length > 0) {
-    const verbalTotal    = verbalRows.reduce((s, r) => s + (r.aiScore ?? 0), 0);
-    const verbalMaxTotal = verbalRows.reduce((s, r) => s + (r.maxMarks ?? 0), 0);
+  const verbalOnlyRows = verbalRows.filter(r => r.type !== 'SUBJECTIVE');
+  if (verbalOnlyRows.length > 0) {
+    const verbalTotal    = verbalOnlyRows.reduce((s, r) => s + (r.aiScore ?? 0), 0);
+    const verbalMaxTotal = verbalOnlyRows.reduce((s, r) => s + (r.maxMarks ?? 0), 0);
 
-    const verbalBlocks = verbalRows.map((r, i) => {
+    const verbalBlocks = verbalOnlyRows.map((r, i) => {
       const bodyId    = `qb-verbal-${i}`;
       const iconId    = `qi-verbal-${i}`;
       const statusCls = r.status === 'SUCCESS' ? 'correct' : r.status === 'FAILED' ? 'incorrect' : 'verbal';
@@ -440,7 +453,7 @@ export const generateAdminPDF = (
     }).join('');
 
     verbalHTML = `
-      <div class="section-title">🎤 Verbal Questions (${verbalRows.length})</div>
+      <div class="section-title">🎤 Verbal Questions (${verbalOnlyRows.length})</div>
       <div class="verbal-summary">Verbal Total: <strong>${verbalTotal.toFixed(2)} / ${verbalMaxTotal}</strong></div>
       ${verbalBlocks}`;
   }
