@@ -9,6 +9,13 @@ import { BACKEND_URL } from './config';
 
 type AppState = 'login' | 'exam' | 'result';
 
+/**
+ * Returns true when the page is running inside Safe Exam Browser.
+ * SEB injects "SEB/" into the User-Agent string on all platforms.
+ */
+const isInsideSEB = (): boolean =>
+  /SEB\//i.test(navigator.userAgent);
+
 const generateSessionKey = (name: string, examCode: string): string => {
   const ts       = Date.now();
   const safeName = name.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_]/g, '');
@@ -127,8 +134,17 @@ function App() {
       return;
     }
 
-    const { jti, sub: email, name, examCode } = payload;
+    const { jti, sub: email, name, examCode, requireSeb } = payload;
     if (!examCode) { setJwtError('Invalid invite link: missing exam code.'); return; }
+
+    // SEB guard — if the admin required SEB and candidate opened a regular browser, block here
+    if (requireSeb && !isInsideSEB()) {
+      setJwtError(
+        'This exam must be opened using Safe Exam Browser (SEB). ' +
+        'Please open the .seb file you received and do not open this link directly in a browser.'
+      );
+      return;
+    }
 
     // Check if already submitted
     fetch(`${BACKEND_URL}/api/exam/check-token/${jti}`)

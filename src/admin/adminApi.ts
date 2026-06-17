@@ -220,4 +220,43 @@ export const adminApi = {
     if (!res.ok) throw new Error(data.error ?? 'Failed to generate link');
     return data;
   },
+
+  /**
+   * Generates a Safe Exam Browser (.seb) config file for the candidate and
+   * triggers a browser download. The .seb file embeds the signed JWT invite
+   * link — the candidate just double-clicks it to open SEB and land on the exam.
+   */
+  async downloadSebConfig(
+    creds: string,
+    id: number,
+    userName: string,
+    userEmail: string,
+    validForMinutes: number,
+    validFromIso?: string,
+    validUntilIso?: string,
+  ): Promise<void> {
+    const res = await fetch(`${API_BASE}/exams/${id}/seb-config`, {
+      method: 'POST',
+      headers: authHeader(creds),
+      body: JSON.stringify({ userName, userEmail, validForMinutes, validFromIso, validUntilIso, sebRequired: true }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error((data as any).error ?? 'Failed to generate SEB config');
+    }
+    // Extract filename from Content-Disposition header, fall back to generic name
+    const disposition = res.headers.get('Content-Disposition') ?? '';
+    const match = disposition.match(/filename="?([^"]+)"?/);
+    const filename = match ? match[1] : `exam_${id}.seb`;
+
+    const blob = await res.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
 };

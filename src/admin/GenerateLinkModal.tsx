@@ -19,42 +19,53 @@ function toIso(localValue: string): string {
 function nowLocalMin(): string {
   const d = new Date();
   d.setSeconds(0, 0);
-  // datetime-local format: YYYY-MM-DDTHH:mm
   return d.toISOString().slice(0, 16);
 }
 
 export default function GenerateLinkModal({ creds, exam, onClose }: Props) {
-  const [step, setStep]                   = useState<ModalStep>('form');
-  const [userName, setUserName]           = useState('');
-  const [userEmail, setUserEmail]         = useState('');
-  const [validityMode, setValidityMode]   = useState<ValidityMode>('duration');
-  const [validFor, setValidFor]           = useState(1440); // minutes, default 24 h
-  const [validFrom, setValidFrom]         = useState('');   // datetime-local value
-  const [validUntil, setValidUntil]       = useState('');   // datetime-local value
-  const [loading, setLoading]             = useState(false);
-  const [error, setError]                 = useState('');
-  const [link, setLink]                   = useState('');
-  const [expiresAt, setExpiresAt]         = useState('');
+  const [step, setStep]                     = useState<ModalStep>('form');
+  const [userName, setUserName]             = useState('');
+  const [userEmail, setUserEmail]           = useState('');
+  const [validityMode, setValidityMode]     = useState<ValidityMode>('duration');
+  const [validFor, setValidFor]             = useState(1440);
+  const [validFrom, setValidFrom]           = useState('');
+  const [validUntil, setValidUntil]         = useState('');
+  const [requireSeb, setRequireSeb]         = useState(false);
+  const [loading, setLoading]               = useState(false);
+  const [sebLoading, setSebLoading]         = useState(false);
+  const [error, setError]                   = useState('');
+  const [link, setLink]                     = useState('');
+  const [expiresAt, setExpiresAt]           = useState('');
   const [validFromLabel, setValidFromLabel] = useState<string | null>(null);
-  const [copied, setCopied]               = useState(false);
+  const [copied, setCopied]                 = useState(false);
+  const [sebDownloaded, setSebDownloaded]   = useState(false);
 
-  const handleGenerate = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const buildPayload = () => ({
+    fromIso:  validityMode === 'window' && validFrom  ? toIso(validFrom)  : undefined,
+    untilIso: validityMode === 'window' && validUntil ? toIso(validUntil) : undefined,
+  });
+
+  const validate = (): boolean => {
     if (!userName.trim() || !userEmail.trim()) {
       setError('Name and email are required.');
-      return;
+      return false;
     }
     if (validityMode === 'window') {
-      if (!validUntil) { setError('Please set a valid-until datetime.'); return; }
+      if (!validUntil) { setError('Please set a valid-until datetime.'); return false; }
       if (validFrom && validUntil && new Date(validFrom) >= new Date(validUntil)) {
-        setError('Valid-until must be after valid-from.'); return;
+        setError('Valid-until must be after valid-from.'); return false;
       }
     }
     setError('');
+    return true;
+  };
+
+  const handleGenerate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!validate()) return;
     setLoading(true);
     try {
-      const fromIso  = validityMode === 'window' && validFrom  ? toIso(validFrom)  : undefined;
-      const untilIso = validityMode === 'window' && validUntil ? toIso(validUntil) : undefined;
+      const { fromIso, untilIso } = buildPayload();
       const res = await adminApi.generateLink(
         creds, exam.id, userName.trim(), userEmail.trim(), validFor, fromIso, untilIso,
       );
@@ -66,6 +77,23 @@ export default function GenerateLinkModal({ creds, exam, onClose }: Props) {
       setError(err.message ?? 'Failed to generate link.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSebDownload = async () => {
+    if (!validate()) return;
+    setSebLoading(true);
+    try {
+      const { fromIso, untilIso } = buildPayload();
+      await adminApi.downloadSebConfig(
+        creds, exam.id, userName.trim(), userEmail.trim(), validFor, fromIso, untilIso,
+      );
+      setSebDownloaded(true);
+      setTimeout(() => setSebDownloaded(false), 3000);
+    } catch (err: any) {
+      setError(err.message ?? 'Failed to generate SEB config.');
+    } finally {
+      setSebLoading(false);
     }
   };
 
@@ -83,6 +111,7 @@ export default function GenerateLinkModal({ creds, exam, onClose }: Props) {
     setLink('');
     setValidFrom('');
     setValidUntil('');
+    setSebDownloaded(false);
   };
 
   return (
@@ -233,12 +262,38 @@ export default function GenerateLinkModal({ creds, exam, onClose }: Props) {
               </div>
             )}
 
+            {/* ── SEB Toggle ───────────────────────────────────────────────── */}
+            <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+              <button
+                type="button"
+                onClick={() => setRequireSeb(v => !v)}
+                className={`relative inline-flex h-5 w-9 flex-shrink-0 mt-0.5 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                  requireSeb ? 'bg-amber-500' : 'bg-gray-300'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200 ease-in-out ${
+                    requireSeb ? 'translate-x-4' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+              <div>
+                <p className="text-sm font-medium text-amber-900">Require Safe Exam Browser</p>
+                <p className="text-xs text-amber-700 mt-0.5">
+                  {requireSeb
+                    ? 'Download a .seb file to send to the candidate. SEB locks the desktop during the exam.'
+                    : 'Toggle on to generate a locked .seb config file instead of a plain link.'}
+                </p>
+              </div>
+            </div>
+
             {error && (
               <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
                 {error}
               </p>
             )}
 
+            {/* ── Action buttons ───────────────────────────────────────────── */}
             <div className="flex gap-3 justify-end pt-2">
               <button
                 type="button"
@@ -247,16 +302,53 @@ export default function GenerateLinkModal({ creds, exam, onClose }: Props) {
               >
                 Cancel
               </button>
-              <button
-                type="submit"
-                disabled={loading}
-                className="px-5 py-2 text-sm bg-slate-800 text-white rounded-lg hover:bg-slate-900 transition disabled:opacity-50"
-              >
-                {loading ? 'Generating…' : 'Generate Link'}
-              </button>
+
+              {requireSeb ? (
+                /* SEB mode: show Download .seb button */
+                <button
+                  type="button"
+                  onClick={handleSebDownload}
+                  disabled={sebLoading}
+                  className={`px-5 py-2 text-sm rounded-lg font-medium transition disabled:opacity-50 flex items-center gap-2 ${
+                    sebDownloaded
+                      ? 'bg-green-500 text-white'
+                      : 'bg-amber-500 hover:bg-amber-600 text-white'
+                  }`}
+                >
+                  {sebLoading ? (
+                    <>
+                      <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                      </svg>
+                      Generating…
+                    </>
+                  ) : sebDownloaded ? (
+                    '✓ Downloaded!'
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                          d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                      </svg>
+                      Download .seb File
+                    </>
+                  )}
+                </button>
+              ) : (
+                /* Normal mode: generate plain link */
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="px-5 py-2 text-sm bg-slate-800 text-white rounded-lg hover:bg-slate-900 transition disabled:opacity-50"
+                >
+                  {loading ? 'Generating…' : 'Generate Link'}
+                </button>
+              )}
             </div>
           </form>
         ) : (
+          /* ── Result step (plain link mode only) ─────────────────────────── */
           <div className="p-6 space-y-5">
             <div className="flex items-start gap-3 bg-green-50 border border-green-200 rounded-xl p-4">
               <svg className="w-8 h-8 text-green-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
