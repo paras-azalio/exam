@@ -31,6 +31,7 @@ export default function GenerateLinkModal({ creds, exam, onClose }: Props) {
   const [validFrom, setValidFrom]           = useState('');
   const [validUntil, setValidUntil]         = useState('');
   const [requireSeb, setRequireSeb]         = useState(false);
+  const [liveStream, setLiveStream]         = useState(false);
   const [loading, setLoading]               = useState(false);
   const [sebLoading, setSebLoading]         = useState(false);
   const [error, setError]                   = useState('');
@@ -67,7 +68,7 @@ export default function GenerateLinkModal({ creds, exam, onClose }: Props) {
     try {
       const { fromIso, untilIso } = buildPayload();
       const res = await adminApi.generateLink(
-        creds, exam.id, userName.trim(), userEmail.trim(), validFor, fromIso, untilIso,
+        creds, exam.id, userName.trim(), userEmail.trim(), validFor, fromIso, untilIso, liveStream,
       );
       setLink(res.link);
       setExpiresAt(res.expiresAt);
@@ -86,7 +87,7 @@ export default function GenerateLinkModal({ creds, exam, onClose }: Props) {
     try {
       const { fromIso, untilIso } = buildPayload();
       await adminApi.downloadSebConfig(
-        creds, exam.id, userName.trim(), userEmail.trim(), validFor, fromIso, untilIso,
+        creds, exam.id, userName.trim(), userEmail.trim(), validFor, fromIso, untilIso, liveStream,
       );
       setSebDownloaded(true);
       setTimeout(() => setSebDownloaded(false), 3000);
@@ -112,6 +113,7 @@ export default function GenerateLinkModal({ creds, exam, onClose }: Props) {
     setValidFrom('');
     setValidUntil('');
     setSebDownloaded(false);
+    setLiveStream(false);
   };
 
   return (
@@ -283,6 +285,42 @@ export default function GenerateLinkModal({ creds, exam, onClose }: Props) {
                   {requireSeb
                     ? 'Download a .seb file to send to the candidate. SEB locks the desktop during the exam.'
                     : 'Toggle on to generate a locked .seb config file instead of a plain link.'}
+                </p>
+              </div>
+            </div>
+
+            {/* ── Live Proctoring Toggle ───────────────────────────────────── */}
+            <div className="flex items-start gap-3 bg-rose-50 border border-rose-200 rounded-xl px-4 py-3">
+              <button
+                type="button"
+                onClick={() => setLiveStream(v => !v)}
+                className={`relative inline-flex h-5 w-9 flex-shrink-0 mt-0.5 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                  liveStream ? 'bg-rose-500' : 'bg-gray-300'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200 ease-in-out ${
+                    liveStream ? 'translate-x-4' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+              <div>
+                <p className="text-sm font-medium text-rose-900 flex items-center gap-1.5">
+                  Enable Live Proctoring
+                  {liveStream && (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-600">
+                      <span className="relative flex h-2 w-2">
+                        <span className="absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75 animate-ping" />
+                        <span className="relative inline-flex h-2 w-2 rounded-full bg-rose-500" />
+                      </span>
+                      LIVE
+                    </span>
+                  )}
+                </p>
+                <p className="text-xs text-rose-700 mt-0.5">
+                  {liveStream
+                    ? 'HR can watch this candidate’s camera and screen in real time from the Live monitor.'
+                    : 'Toggle on to let HR watch this candidate’s camera and screen live during the exam.'}
                 </p>
               </div>
             </div>

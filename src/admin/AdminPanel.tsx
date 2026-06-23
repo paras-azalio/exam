@@ -3,6 +3,7 @@ import { adminApi, ExamRow } from './adminApi';
 import ExamFormModal from './ExamFormModal';
 import GenerateLinkModal from './GenerateLinkModal';
 import ResultsModal from './ResultsModal';
+import LiveParticipantsModal from './LiveParticipantsModal';
 import { ExamFormState, defaultForm, jsonToForm } from './types';
 
 interface Props {
@@ -26,6 +27,7 @@ export default function AdminPanel({ creds, onLogout }: Props) {
   const [permDeleteId, setPermDeleteId] = useState<number | null>(null);  // confirm permanent delete
   const [linkExam, setLinkExam]         = useState<ExamRow | null>(null);
   const [resultsExam, setResultsExam]   = useState<ExamRow | null>(null);
+  const [showLive, setShowLive]         = useState(false);
 
   const [searchQuery, setSearchQuery]   = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
@@ -149,6 +151,17 @@ const filteredExams = debouncedQuery
           <span className="font-bold text-lg">EXAMS</span>
         </div>
         <div className="flex items-center gap-3">
+          {/* Live proctoring monitor */}
+          <button
+            onClick={() => setShowLive(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm bg-rose-600 hover:bg-rose-700 text-white transition"
+          >
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full rounded-full bg-rose-300 opacity-75 animate-ping" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-white" />
+            </span>
+            Live
+          </button>
           {/* Trash toggle */}
           <button
             onClick={() => setView(v => v === 'trash' ? 'live' : 'trash')}
@@ -480,6 +493,11 @@ const filteredExams = debouncedQuery
           exam={linkExam}
           onClose={() => setLinkExam(null)}
         />
+      )}
+
+      {/* Live Proctoring Modal */}
+      {showLive && (
+        <LiveParticipantsModal onClose={() => setShowLive(false)} />
       )}
 
       {/* Move to trash confirm */}

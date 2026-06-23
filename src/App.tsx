@@ -99,6 +99,7 @@ function App() {
   const [examPhase, setExamPhase]         = useState<'setup' | 'disclaimer' | 'active'>('setup');
   const [examStartTime, setExamStartTime] = useState<string | null>(null);
   const [isJwtMode, setIsJwtMode]         = useState(false);
+  const [isLiveStream, setIsLiveStream]   = useState(false);
   const [rawJwtToken, setRawJwtToken]     = useState('');
   const [jwtError, setJwtError]           = useState('');
   const [isSubmitting, setIsSubmitting]   = useState(false);
@@ -134,7 +135,7 @@ function App() {
       return;
     }
 
-    const { jti, sub: email, name, examCode, requireSeb } = payload;
+    const { jti, sub: email, name, examCode, requireSeb, liveStream } = payload;
     if (!examCode) { setJwtError('Invalid invite link: missing exam code.'); return; }
 
     // SEB guard — if the admin required SEB and candidate opened a regular browser, block here
@@ -242,6 +243,7 @@ function App() {
         setViolations(0);
         setExamStartTime(startTime);
         setIsJwtMode(true);
+        setIsLiveStream(!!liveStream);
         setState('exam');
       })
       .catch(() => setJwtError('Failed to load exam. Please try again.'));
@@ -399,6 +401,7 @@ function App() {
     setResultData(null);
     setExamStartTime(null);
     setIsJwtMode(false);
+    setIsLiveStream(false);
     setRawJwtToken('');
     setJwtError('');
     setIsSubmitting(false);
@@ -460,6 +463,7 @@ function App() {
           sessionKey={sessionKey}
           jwtToken={rawJwtToken}
           isJwtMode={isJwtMode}
+          liveStream={isLiveStream}
           onSubmit={handleExamSubmit}
           onViolation={handleViolation}
           onSuppressViolations={handleSuppressViolations}

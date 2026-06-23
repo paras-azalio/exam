@@ -5,6 +5,9 @@ import { QuestionNavigator } from './QuestionNavigator';
 import { JobDescriptionPage } from './JobDescriptionPage';
 import { formatTime, loadExamQuestions } from '../utils/examUtils';
 import { useExamRecorder } from '../hooks/useExamRecorder';
+import { useWebRTCStream } from '../hooks/useWebRTCStream';
+import FloatingProctorWindow from './FloatingProctorWindow';
+import ChatWidget from './ChatWidget';
 import { BACKEND_URL } from '../config';
 
 interface ExamInterfaceProps {
@@ -15,6 +18,8 @@ interface ExamInterfaceProps {
   /** Raw JWT invite token — used to authenticate the /questions fetch. */
   jwtToken?: string;
   isJwtMode?: boolean;
+  /** From the JWT "liveStream" claim — when true, stream camera+screen to HR live. */
+  liveStream?: boolean;
   onSubmit: (answers: Answer[], questionOrderMap: Record<string, number>) => void;
   onSuppressViolations: (ms: number) => void;
   onPhaseActive: () => void;
@@ -59,6 +64,7 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   sessionKey,
   jwtToken = '',
   isJwtMode = false,
+  liveStream = false,
   onSubmit,
   onViolation,
   onSuppressViolations,
@@ -194,7 +200,22 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
     screenError,
     setCameraError,
     setScreenError,
+    cameraStreamRef,
+    screenStreamRef,
   } = useExamRecorder(sessionKey);
+
+  // ── Live proctoring: stream camera + screen to HR Admins in real time ─────────
+  // Enabled only when the JWT carried liveStream=true AND the exam is active, so
+  // the streams already exist (recording has begun) and there is something to send.
+  const liveProctor = useWebRTCStream({
+    enabled: liveStream && examPhase === 'active',
+    sessionKey,
+    studentName,
+    examCode: examData.examCode,
+    cameraStreamRef,
+    screenStreamRef,
+  });
+  const liveProctoringActive = liveStream && examPhase === 'active';
 
   // ── Verbal auto-start: VerbalRecorder handles its own countdown internally.
   // We just need to ensure the answer state is updated when recording completes.
@@ -897,6 +918,18 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Live proctoring: proctor's PiP video/voice + two-way chat */}
+      {liveProctoringActive && (
+        <>
+          <FloatingProctorWindow
+            stream={liveProctor.adminStream}
+            videoActive={liveProctor.adminMedia.video}
+            audioActive={liveProctor.adminMedia.audio}
+          />
+          <ChatWidget messages={liveProctor.messages} onSend={liveProctor.sendChat} />
+        </>
+      )}
     </div>
   );
 };

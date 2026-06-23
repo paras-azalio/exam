@@ -210,11 +210,12 @@ export const adminApi = {
     validForMinutes: number,
     validFromIso?: string,
     validUntilIso?: string,
+    liveStream = false,
   ): Promise<{ link: string; expiresAt: string; validFrom?: string | null }> {
     const res = await fetch(`${API_BASE}/exams/${id}/generate-link`, {
       method: 'POST',
       headers: authHeader(creds),
-      body: JSON.stringify({ userName, userEmail, validForMinutes, validFromIso, validUntilIso }),
+      body: JSON.stringify({ userName, userEmail, validForMinutes, validFromIso, validUntilIso, liveStream }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error ?? 'Failed to generate link');
@@ -234,11 +235,12 @@ export const adminApi = {
     validForMinutes: number,
     validFromIso?: string,
     validUntilIso?: string,
+    liveStream = false,
   ): Promise<void> {
     const res = await fetch(`${API_BASE}/exams/${id}/seb-config`, {
       method: 'POST',
       headers: authHeader(creds),
-      body: JSON.stringify({ userName, userEmail, validForMinutes, validFromIso, validUntilIso, sebRequired: true }),
+      body: JSON.stringify({ userName, userEmail, validForMinutes, validFromIso, validUntilIso, sebRequired: true, liveStream }),
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
