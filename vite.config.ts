@@ -4,14 +4,14 @@ import basicSsl from '@vitejs/plugin-basic-ssl';
 
 // The Spring Boot backend (REST + STOMP/SockJS) runs here over plain HTTP.
 // We never let the browser hit it directly — see the proxy below.
-// Local run: backend is on this machine. (Was http://172.15.0.44:8080 for the
+// Local run: backend is on this machine. (Was http://localhost:8080 for the
 // LAN/server setup — switch back if you point the frontend at a remote backend.)
 const BACKEND = 'http://localhost:8080';
 
 export default defineConfig({
   // basicSsl() makes the dev server serve HTTPS with a self-signed cert.
   // This is REQUIRED so that admins opening the panel from another machine
-  // (e.g. http://172.15.0.44:5173) get a SECURE CONTEXT — without it,
+  // (e.g. http://localhost:5173) get a SECURE CONTEXT — without it,
   // navigator.mediaDevices is undefined and the admin cannot turn on mic/camera.
   plugins: [react(), basicSsl()],
   base: '/QuickScreen/',

@@ -318,7 +318,7 @@ export default function LiveViewer({ candidate, onClose }: Props) {
     if (typeof navigator.mediaDevices?.getUserMedia === 'function') return true;
     setMediaError(
       'Camera/microphone need a secure (HTTPS) page. Open the admin panel via ' +
-      'its https:// address (e.g. https://172.15.0.44:5173/QuickScreen/adm) and ' +
+      'its https:// address (e.g. https://localhost:5173/QuickScreen/adm) and ' +
       'accept the certificate warning. The candidate connection stays open.',
     );
     return false;

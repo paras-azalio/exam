@@ -9,4 +9,4 @@
  */
 export const BACKEND_URL: string =
   (import.meta.env.VITE_BACKEND_URL as string | undefined)?.replace(/\/$/, '') ??
-  'http://172.15.0.44:8080';
+  'http://localhost:8080';
