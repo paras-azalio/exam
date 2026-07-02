@@ -258,9 +258,20 @@ export default function LiveViewer({ candidate, onClose }: Props) {
           }
         });
         // Chat from the candidate.
+        // client.subscribe(`/topic/chat/admin/${sessionKey}`, (message) => {
+        //   setMessages((prev) => [...prev, parseBody<ChatMessage>(message)]);
+        // });
+        // Chat from the candidate.
         client.subscribe(`/topic/chat/admin/${sessionKey}`, (message) => {
           setMessages((prev) => [...prev, parseBody<ChatMessage>(message)]);
         });
+
+        // Existing thread for this session (survives close/reopen of the viewer,
+        // and picks up messages sent while this viewer wasn't open).
+        client.subscribe(`/topic/chat/history/${sessionKey}`, (message) => {
+          setMessages(parseBody<ChatMessage[]>(message));
+        });
+        publishSafe(client, '/app/chat/history', JSON.stringify({ sessionKey }));
 
         if (!peerBuiltRef.current) {
           peerBuiltRef.current = true;
