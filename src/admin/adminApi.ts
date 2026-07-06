@@ -214,14 +214,21 @@ export const adminApi = {
     validForMinutes: number,
     validFromIso?: string,
     validUntilIso?: string,
+    liveStream = false,
   ): Promise<{ link: string; expiresAt: string; validFrom?: string | null }> {
     const res = await fetch(`${API_BASE}/exams/${id}/generate-link`, {
       method: 'POST',
       headers: authHeader(creds),
-      body: JSON.stringify({ userName, userEmail, validForMinutes, validFromIso, validUntilIso }),
+      body: JSON.stringify({ userName, userEmail, validForMinutes, validFromIso, validUntilIso, liveStream }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error ?? 'Failed to generate link');
     return data;
   },
+
+  /**
+   * Generates a Safe Exam Browser (.seb) config file for the candidate and
+   * triggers a browser download. The .seb file embeds the signed JWT invite
+   * link — the candidate just double-clicks it to open SEB and land on the exam.
+   */
 };

@@ -177,7 +177,7 @@ export function formToJson(f: ExamFormState): object {
           return {
             ...base,
             timeLimit: q.timeLimit !== '' ? Number(q.timeLimit) : null,
-            expectedReply: q.correctAnswer.filter(a => a.trim()).join(', '),
+            expectedReply: q.correctAnswer.filter(a => a.trim()).join('|||'),
             precision:     q.precision,
           };
         }

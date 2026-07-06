@@ -171,6 +171,7 @@ export interface AdminPDFVerbalRow {
   status:        string;
   transcript?:   string | null;
   feedback?:     string | null;
+  type?:         'VERBAL' | 'SUBJECTIVE' | null;
 }
 
 interface McqDetailRow {
@@ -199,8 +200,8 @@ function trunc(s: string, n = 90): string {
 export const generateAdminPDF = (
   candidateName: string,
   examCode: string,
-  mcqScore:      number | null,
-  mcqMaxMarks:   number | null,
+  _mcqScore:      number | null,
+  _mcqMaxMarks:   number | null,
   totalScore:    number,
   totalMaxMarks: number,
   grade:         string | null,
@@ -217,7 +218,7 @@ export const generateAdminPDF = (
   try {
     if (answersJson) {
       const parsed: McqDetailRow[] = JSON.parse(answersJson);
-      mcqDetails = parsed.filter(d => d.questionType !== 'verbal');
+      mcqDetails = parsed.filter(d => d.questionType !== 'verbal' && d.questionType !== 'subjective');
     }
   } catch { /* non-critical */ }
 
@@ -235,8 +236,28 @@ export const generateAdminPDF = (
     <div class="score-box">
       <h2>Total Score: ${totalScore.toFixed(2)} / ${totalMaxMarks}</h2>
       <p>Percentage: ${totalPct.toFixed(2)}%</p>
-      ${mcqScore != null ? `<p style="margin-top:6px;font-size:14px;color:#555">MCQ / Subjective: ${mcqScore.toFixed(2)} / ${mcqMaxMarks ?? '?'}</p>` : ''}
-      ${verbalRows.length > 0 ? `<p style="margin-top:4px;font-size:14px;color:#555">Verbal: ${verbalRows.reduce((s,r)=>s+(r.aiScore??0),0).toFixed(2)} / ${verbalRows.reduce((s,r)=>s+(r.maxMarks??0),0)}</p>` : ''}
+     ${(() => {
+        let mcqOnlyScore = 0, mcqOnlyMax = 0, subjScore = 0, subjMax = 0;
+        try {
+          if (answersJson) {
+            const parsed: McqDetailRow[] = JSON.parse(answersJson);
+            parsed.filter(d => d.questionType !== 'verbal' && d.questionType !== 'subjective')
+              .forEach(d => { mcqOnlyScore += d.marksAwarded; mcqOnlyMax += d.totalMarks; });
+            parsed.filter(d => d.questionType === 'subjective')
+              .forEach(d => { subjScore += d.marksAwarded; subjMax += d.totalMarks; });
+          }
+        } catch { /* ignore */ }
+        const hasMcq  = mcqOnlyMax > 0;
+        const verbalOnly = verbalRows.filter(r => r.type !== 'SUBJECTIVE');
+        const subjAiRows = verbalRows.filter(r => r.type === 'SUBJECTIVE');
+        const hasVerbal  = verbalOnly.length > 0;
+        const hasSubjAi  = subjAiRows.length > 0;
+        return `
+          ${hasMcq  ? `<p style="margin-top:6px;font-size:14px;color:#555">MCQ: ${mcqOnlyScore.toFixed(2)} / ${mcqOnlyMax}</p>` : ''}
+          ${hasSubjAi ? `<p style="margin-top:4px;font-size:14px;color:#555">Subjective: ${subjAiRows.reduce((s,r)=>s+(r.aiScore??0),0).toFixed(2)} / ${subjAiRows.reduce((s,r)=>s+(r.maxMarks??0),0)}</p>` : ''}
+          ${hasVerbal ? `<p style="margin-top:4px;font-size:14px;color:#555">Verbal: ${verbalOnly.reduce((s,r)=>s+(r.aiScore??0),0).toFixed(2)} / ${verbalOnly.reduce((s,r)=>s+(r.maxMarks??0),0)}</p>` : ''}
+        `;
+      })()}
     </div>
   `;
 
@@ -307,17 +328,94 @@ export const generateAdminPDF = (
     }).join('');
 
     mcqHTML = `
-      <div class="section-title">📋 MCQ / Subjective Questions (${mcqDetails.length})</div>
+      <div class="section-title">📋 MCQ Questions (${mcqDetails.length})</div>
       ${mcqBlocks}`;
+  }
+    // ── Subjective section ──────────────────────────────────────────────────────
+  let subjectiveHTML = '';
+  {
+    let subjDetails: McqDetailRow[] = [];
+    try {
+      if (answersJson) {
+        const parsed: McqDetailRow[] = JSON.parse(answersJson);
+        subjDetails = parsed.filter(d => d.questionType === 'subjective');
+      }
+    } catch { /* non-critical */ }
+    const subjAiLookup: Record<string, AdminPDFVerbalRow> = {};
+    for (const r of verbalRows) {
+      if (r.type === 'SUBJECTIVE') subjAiLookup[r.questionId] = r;
+    }
+
+    if (subjDetails.length > 0) {
+      const subjBlocks = subjDetails.map((d, i) => {
+        const bodyId = `qb-subj-${i}`;
+        const iconId = `qi-subj-${i}`;
+        const ai = subjAiLookup[d.questionId];
+        const aiScore      = ai?.status === 'SUCCESS' && ai.aiScore != null ? ai.aiScore : null;
+        const displayScore = aiScore !== null ? aiScore : d.marksAwarded;
+        const markSign  = displayScore > 0 ? '+' : '';
+        const markColor = displayScore > 0 ? 'color:green' : displayScore < 0 ? 'color:red' : 'color:#888';
+        const notAttempted = d.userAnswer === null || d.userAnswer === undefined ||
+          (Array.isArray(d.userAnswer) && d.userAnswer.length === 0);
+        
+        const badgeText =  ai?.status === 'SUCCESS'
+          ? '✓ AI Scored'
+          : (ai?.status === 'PENDING' || ai?.status === 'SENT')
+            ? '⏳ Pending AI'
+            : notAttempted ? '— Skipped' : '✗ Wrong';
+        const badgeCls  =  ai?.status === 'SUCCESS' ? 'correct' : notAttempted ? 'skipped' : 'incorrect';
+
+        const correctIds: string[] = Array.isArray(d.correctAnswer)
+          ? d.correctAnswer as string[]
+          : d.correctAnswer ? [d.correctAnswer as string] : [];
+
+        const userAns     = d.userAnswer
+          ? Array.isArray(d.userAnswer) ? (d.userAnswer as string[]).join(' / ') : String(d.userAnswer)
+          : '(Not answered)';
+        const expectedAns = d.expectedReply ? d.expectedReply : correctIds.join(' / ') || '—';
+
+        const optionsHTML = `
+          <div class="subj-answers">
+            <div><strong>Answer:</strong> ${esc(userAns)}</div>
+            <div class="correct-hint"><strong>Expected answer:</strong> ${esc(expectedAns)}</div>
+          </div>
+          ${ai?.feedback
+              ? `<div class="verbal-feedback" style="margin-top:8px"><div class="vf-label">AI Feedback</div><div class="vf-text">${esc(ai.feedback)}</div></div>`
+              : ''}`;
+        return `
+          <div class="q-block subjective-block">
+            <div class="q-header collapsible-header" onclick="toggleQ('${bodyId}','${iconId}')">
+              <div class="q-header-left">
+                <span class="q-num">Q${d.questionNumber}.</span>
+                <span class="q-preview">${esc(trunc(d.questionText))}</span>
+              </div>
+              <div class="q-header-right">
+                <span class="${badgeCls}">${badgeText}</span>
+                <span class="q-marks" style="${markColor}">${markSign}${displayScore.toFixed(2)} / ${d.totalMarks}</span>
+                <span class="toggle-icon" id="${iconId}">▾</span>
+              </div>
+            </div>
+            <div class="q-body" id="${bodyId}">
+              <p class="q-text">${esc(d.questionText)}</p>
+              ${optionsHTML}
+            </div>
+          </div>`;
+      }).join('');
+
+      subjectiveHTML = `
+        <div class="section-title">✍️ Subjective Questions (${subjDetails.length})</div>
+        ${subjBlocks}`;
+    }
   }
 
   // ── Verbal section ─────────────────────────────────────────────────────────
   let verbalHTML = '';
-  if (verbalRows.length > 0) {
-    const verbalTotal    = verbalRows.reduce((s, r) => s + (r.aiScore ?? 0), 0);
-    const verbalMaxTotal = verbalRows.reduce((s, r) => s + (r.maxMarks ?? 0), 0);
+  const verbalOnlyRows = verbalRows.filter(r => r.type !== 'SUBJECTIVE');
+  if (verbalOnlyRows.length > 0) {
+    const verbalTotal    = verbalOnlyRows.reduce((s, r) => s + (r.aiScore ?? 0), 0);
+    const verbalMaxTotal = verbalOnlyRows.reduce((s, r) => s + (r.maxMarks ?? 0), 0);
 
-    const verbalBlocks = verbalRows.map((r, i) => {
+    const verbalBlocks = verbalOnlyRows.map((r, i) => {
       const bodyId    = `qb-verbal-${i}`;
       const iconId    = `qi-verbal-${i}`;
       const statusCls = r.status === 'SUCCESS' ? 'correct' : r.status === 'FAILED' ? 'incorrect' : 'verbal';
@@ -355,12 +453,12 @@ export const generateAdminPDF = (
     }).join('');
 
     verbalHTML = `
-      <div class="section-title">🎤 Verbal Questions (${verbalRows.length})</div>
+      <div class="section-title">🎤 Verbal Questions (${verbalOnlyRows.length})</div>
       <div class="verbal-summary">Verbal Total: <strong>${verbalTotal.toFixed(2)} / ${verbalMaxTotal}</strong></div>
       ${verbalBlocks}`;
   }
 
-  const bodyHTML = mcqHTML + verbalHTML;
+  const bodyHTML = mcqHTML +subjectiveHTML+ verbalHTML;
 
   printWindow.document.write(buildHtml(examCode, candidateName, headerHTML, bodyHTML));
   printWindow.document.close();
@@ -387,6 +485,8 @@ function buildHtml(examCode: string, candidateName: string, headerHTML: string, 
     /* question blocks */
     .q-block { margin-bottom: 14px; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; page-break-inside: avoid; }
     .verbal-block { border-color: #f97316; }
+    .subjective-block { border-color: #3b82f6; }
+    .subjective-block .collapsible-header { background: #eff6ff; border-color: #bfdbfe; }
 
     /* collapsible header */
     .collapsible-header { display: flex; justify-content: space-between; align-items: center;

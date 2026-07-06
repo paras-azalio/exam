@@ -250,7 +250,6 @@ export default function RecordingsModal({ creds, result, examCode, onClose }: Pr
       result.totalMaxMarks,
       result.grade,
       result.aiResults
-      .filter(ar => ar.type !== 'SUBJECTIVE')
       .map(ar => ({
         questionId:    ar.questionId,
         question:      ar.question,
@@ -260,6 +259,7 @@ export default function RecordingsModal({ creds, result, examCode, onClose }: Pr
         status:        ar.status,
         transcript:    ar.transcript,
         feedback:      ar.feedback,
+        type:          ar.type,
       })),
       result.answersJson
     );

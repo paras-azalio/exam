@@ -19,44 +19,53 @@ function toIso(localValue: string): string {
 function nowLocalMin(): string {
   const d = new Date();
   d.setSeconds(0, 0);
-  // datetime-local format: YYYY-MM-DDTHH:mm
   return d.toISOString().slice(0, 16);
 }
 
 export default function GenerateLinkModal({ creds, exam, onClose }: Props) {
-  const [step, setStep]                   = useState<ModalStep>('form');
-  const [userName, setUserName]           = useState('');
-  const [userEmail, setUserEmail]         = useState('');
-  const [validityMode, setValidityMode]   = useState<ValidityMode>('duration');
-  const [validFor, setValidFor]           = useState(1440); // minutes, default 24 h
-  const [validFrom, setValidFrom]         = useState('');   // datetime-local value
-  const [validUntil, setValidUntil]       = useState('');   // datetime-local value
-  const [loading, setLoading]             = useState(false);
-  const [error, setError]                 = useState('');
-  const [link, setLink]                   = useState('');
-  const [expiresAt, setExpiresAt]         = useState('');
+  const [step, setStep]                     = useState<ModalStep>('form');
+  const [userName, setUserName]             = useState('');
+  const [userEmail, setUserEmail]           = useState('');
+  const [validityMode, setValidityMode]     = useState<ValidityMode>('duration');
+  const [validFor, setValidFor]             = useState(1440);
+  const [validFrom, setValidFrom]           = useState('');
+  const [validUntil, setValidUntil]         = useState('');
+  const [liveStream, setLiveStream]         = useState(false);
+  const [loading, setLoading]               = useState(false);
+  const [error, setError]                   = useState('');
+  const [link, setLink]                     = useState('');
+  const [expiresAt, setExpiresAt]           = useState('');
   const [validFromLabel, setValidFromLabel] = useState<string | null>(null);
-  const [copied, setCopied]               = useState(false);
+  const [copied, setCopied]                 = useState(false);
 
-  const handleGenerate = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const buildPayload = () => ({
+    fromIso:  validityMode === 'window' && validFrom  ? toIso(validFrom)  : undefined,
+    untilIso: validityMode === 'window' && validUntil ? toIso(validUntil) : undefined,
+  });
+
+  const validate = (): boolean => {
     if (!userName.trim() || !userEmail.trim()) {
       setError('Name and email are required.');
-      return;
+      return false;
     }
     if (validityMode === 'window') {
-      if (!validUntil) { setError('Please set a valid-until datetime.'); return; }
+      if (!validUntil) { setError('Please set a valid-until datetime.'); return false; }
       if (validFrom && validUntil && new Date(validFrom) >= new Date(validUntil)) {
-        setError('Valid-until must be after valid-from.'); return;
+        setError('Valid-until must be after valid-from.'); return false;
       }
     }
     setError('');
+    return true;
+  };
+
+  const handleGenerate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!validate()) return;
     setLoading(true);
     try {
-      const fromIso  = validityMode === 'window' && validFrom  ? toIso(validFrom)  : undefined;
-      const untilIso = validityMode === 'window' && validUntil ? toIso(validUntil) : undefined;
+      const { fromIso, untilIso } = buildPayload();
       const res = await adminApi.generateLink(
-        creds, exam.id, userName.trim(), userEmail.trim(), validFor, fromIso, untilIso,
+        creds, exam.id, userName.trim(), userEmail.trim(), validFor, fromIso, untilIso, liveStream,
       );
       setLink(res.link);
       setExpiresAt(res.expiresAt);
@@ -83,6 +92,7 @@ export default function GenerateLinkModal({ creds, exam, onClose }: Props) {
     setLink('');
     setValidFrom('');
     setValidUntil('');
+    setLiveStream(false);
   };
 
   return (
@@ -233,12 +243,50 @@ export default function GenerateLinkModal({ creds, exam, onClose }: Props) {
               </div>
             )}
 
+
+            {/* ── Live Proctoring Toggle ───────────────────────────────────── */}
+            <div className="flex items-start gap-3 bg-rose-50 border border-rose-200 rounded-xl px-4 py-3">
+              <button
+                type="button"
+                onClick={() => setLiveStream(v => !v)}
+                className={`relative inline-flex h-5 w-9 flex-shrink-0 mt-0.5 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                  liveStream ? 'bg-rose-500' : 'bg-gray-300'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200 ease-in-out ${
+                    liveStream ? 'translate-x-4' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+              <div>
+                <p className="text-sm font-medium text-rose-900 flex items-center gap-1.5">
+                  Enable Live Proctoring
+                  {liveStream && (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-600">
+                      <span className="relative flex h-2 w-2">
+                        <span className="absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75 animate-ping" />
+                        <span className="relative inline-flex h-2 w-2 rounded-full bg-rose-500" />
+                      </span>
+                      LIVE
+                    </span>
+                  )}
+                </p>
+                <p className="text-xs text-rose-700 mt-0.5">
+                  {liveStream
+                    ? 'HR can watch this candidate’s camera and screen in real time from the Live monitor.'
+                    : 'Toggle on to let HR watch this candidate’s camera and screen live during the exam.'}
+                </p>
+              </div>
+            </div>
+
             {error && (
               <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
                 {error}
               </p>
             )}
 
+            {/* ── Action buttons ───────────────────────────────────────────── */}
             <div className="flex gap-3 justify-end pt-2">
               <button
                 type="button"
@@ -247,16 +295,18 @@ export default function GenerateLinkModal({ creds, exam, onClose }: Props) {
               >
                 Cancel
               </button>
-              <button
-                type="submit"
-                disabled={loading}
-                className="px-5 py-2 text-sm bg-slate-800 text-white rounded-lg hover:bg-slate-900 transition disabled:opacity-50"
-              >
-                {loading ? 'Generating…' : 'Generate Link'}
-              </button>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="px-5 py-2 text-sm bg-slate-800 text-white rounded-lg hover:bg-slate-900 transition disabled:opacity-50"
+                >
+                  {loading ? 'Generating…' : 'Generate Link'}
+                </button>
             </div>
           </form>
         ) : (
+          /* ── Result step (plain link mode only) ─────────────────────────── */
           <div className="p-6 space-y-5">
             <div className="flex items-start gap-3 bg-green-50 border border-green-200 rounded-xl p-4">
               <svg className="w-8 h-8 text-green-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
