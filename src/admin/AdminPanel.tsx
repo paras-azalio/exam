@@ -3,6 +3,7 @@ import { adminApi, ExamRow } from './adminApi';
 import ExamFormModal from './ExamFormModal';
 import GenerateLinkModal from './GenerateLinkModal';
 import ResultsModal from './ResultsModal';
+import { Link } from 'react-router-dom';
 import { ExamFormState, defaultForm, jsonToForm } from './types';
 
 interface Props {
@@ -254,7 +255,15 @@ const filteredExams = debouncedQuery
                           </tr>
                         ) : filteredExams.map(exam => (
                           <tr key={exam.id} className="hover:bg-gray-50">
-                            <td className="px-4 py-3 font-mono font-semibold text-gray-800 whitespace-nowrap">{exam.examCode}</td>
+                            <td className="px-4 py-3 font-mono font-semibold text-gray-800 whitespace-nowrap">
+                              <Link
+                                to={`/adm/exam/${exam.examCode}`}
+                                state={{ exam }}
+                                className="text-blue-700 hover:text-blue-900 hover:underline"
+                              >
+                                {exam.examCode}
+                              </Link>
+                            </td>
                             <td className="px-4 py-3 text-gray-700">{exam.examTitle}</td>
                             <td className="px-4 py-3 text-center">
                               <button
@@ -306,7 +315,13 @@ const filteredExams = debouncedQuery
                   <div key={exam.id} className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
                       <div className="flex items-start justify-between gap-2 mb-2">
                         <div>
-                          <span className="font-mono font-bold text-gray-800 text-sm">{exam.examCode}</span>
+                           <Link
+                            to={`/adm/exam/${exam.examCode}`}
+                            state={{ exam }}
+                            className="font-mono font-bold text-blue-700 hover:text-blue-900 hover:underline text-sm"
+                          >
+                            {exam.examCode}
+                          </Link>
                           <button
                             onClick={() => handleToggle(exam.id)}
                             className={`ml-2 px-2 py-0.5 rounded-full text-xs font-semibold transition ${
