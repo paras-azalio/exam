@@ -1,14 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-// --- GAZE TRACKING START ---
-import { FaceMesh, NormalizedLandmark, Results as FaceMeshResults } from '@mediapipe/face_mesh';
-// --- GAZE TRACKING END ---
-import { ExamData, Answer, QuestionStatus, Section, GazeEvent } from '../types/exam';
+import { ExamData, Answer, QuestionStatus, Section } from '../types/exam';
 import { QuestionDisplay } from './QuestionDisplay';
 import { QuestionNavigator } from './QuestionNavigator';
 import { JobDescriptionPage } from './JobDescriptionPage';
 import { formatTime, loadExamQuestions } from '../utils/examUtils';
 import { useExamRecorder } from '../hooks/useExamRecorder';
 import { useWebRTCStream } from '../hooks/useWebRTCStream';
+import { useNetworkStatus } from '../hooks/useNetworkStatus';
+import { runSpeedTest, SpeedTestResult } from '../utils/speedTest';
 import FloatingProctorWindow from './FloatingProctorWindow';
 import ChatWidget from './ChatWidget';
 import { BACKEND_URL } from '../config';
@@ -26,102 +25,9 @@ interface ExamInterfaceProps {
   onSubmit: (answers: Answer[], questionOrderMap: Record<string, number>) => void;
   onSuppressViolations: (ms: number) => void;
   onPhaseActive: () => void;
-  // --- GAZE TRACKING START ---
-  onGazeEventsChange?: (events: GazeEvent[]) => void;
-  // --- GAZE TRACKING END ---
   onViolation?: () => void;
   violations: number;
 }
-
-// --- GAZE TRACKING START ---
-type GazeDirection = NonNullable<GazeEvent['direction']>;
-type GazeEventType = GazeEvent['type'];
-
-const GAZE_EVENTS_LS_KEY = 'qs_exam_gaze_events';
-const GAZE_SAMPLE_MS = 100;
-const LOOK_AWAY_THRESHOLD_MS = 200;
-const NO_FACE_THRESHOLD_MS = 2000;
-const MULTI_FACE_THRESHOLD_MS = 500;
-
-const FACE_MESH_ASSETS: Record<string, string> = {
-  'face_mesh.binarypb': new URL('../../node_modules/@mediapipe/face_mesh/face_mesh.binarypb', import.meta.url).href,
-  'face_mesh_solution_packed_assets.data': new URL('../../node_modules/@mediapipe/face_mesh/face_mesh_solution_packed_assets.data', import.meta.url).href,
-  'face_mesh_solution_packed_assets_loader.js': new URL('../../node_modules/@mediapipe/face_mesh/face_mesh_solution_packed_assets_loader.js', import.meta.url).href,
-  'face_mesh_solution_simd_wasm_bin.data': new URL('../../node_modules/@mediapipe/face_mesh/face_mesh_solution_simd_wasm_bin.data', import.meta.url).href,
-  'face_mesh_solution_simd_wasm_bin.js': new URL('../../node_modules/@mediapipe/face_mesh/face_mesh_solution_simd_wasm_bin.js', import.meta.url).href,
-  'face_mesh_solution_simd_wasm_bin.wasm': new URL('../../node_modules/@mediapipe/face_mesh/face_mesh_solution_simd_wasm_bin.wasm', import.meta.url).href,
-  'face_mesh_solution_wasm_bin.js': new URL('../../node_modules/@mediapipe/face_mesh/face_mesh_solution_wasm_bin.js', import.meta.url).href,
-  'face_mesh_solution_wasm_bin.wasm': new URL('../../node_modules/@mediapipe/face_mesh/face_mesh_solution_wasm_bin.wasm', import.meta.url).href,
-};
-
-const avgPoint = (points: NormalizedLandmark[]): NormalizedLandmark => {
-  const total = points.reduce((acc, p) => ({
-    x: acc.x + p.x,
-    y: acc.y + p.y,
-    z: acc.z + p.z,
-  }), { x: 0, y: 0, z: 0 });
-  return {
-    x: total.x / points.length,
-    y: total.y / points.length,
-    z: total.z / points.length,
-  };
-};
-
-const estimateGazeDirection = (landmarks: NormalizedLandmark[]): GazeDirection => {
-  const hasIris = landmarks.length >= 478;
-
-  if (hasIris) {
-    const leftIris = avgPoint(landmarks.slice(468, 473));
-    const rightIris = avgPoint(landmarks.slice(473, 478));
-
-    const leftEyeXMin = Math.min(landmarks[33].x, landmarks[133].x);
-    const leftEyeXMax = Math.max(landmarks[33].x, landmarks[133].x);
-    const rightEyeXMin = Math.min(landmarks[362].x, landmarks[263].x);
-    const rightEyeXMax = Math.max(landmarks[362].x, landmarks[263].x);
-
-    const leftEyeYMin = Math.min(landmarks[159].y, landmarks[145].y);
-    const leftEyeYMax = Math.max(landmarks[159].y, landmarks[145].y);
-    const rightEyeYMin = Math.min(landmarks[386].y, landmarks[374].y);
-    const rightEyeYMax = Math.max(landmarks[386].y, landmarks[374].y);
-
-    const leftX = (leftIris.x - leftEyeXMin) / Math.max(leftEyeXMax - leftEyeXMin, 0.001);
-    const rightX = (rightIris.x - rightEyeXMin) / Math.max(rightEyeXMax - rightEyeXMin, 0.001);
-    const leftY = (leftIris.y - leftEyeYMin) / Math.max(leftEyeYMax - leftEyeYMin, 0.001);
-    const rightY = (rightIris.y - rightEyeYMin) / Math.max(rightEyeYMax - rightEyeYMin, 0.001);
-
-    const horizontal = (leftX + rightX) / 2;
-    const vertical = (leftY + rightY) / 2;
-    const faceYMin = Math.min(...landmarks.map(p => p.y));
-    const faceYMax = Math.max(...landmarks.map(p => p.y));
-    const faceHeight = Math.max(faceYMax - faceYMin, 0.001);
-    const leftEyeCenter = avgPoint([landmarks[33], landmarks[133], landmarks[159], landmarks[145]]);
-    const rightEyeCenter = avgPoint([landmarks[362], landmarks[263], landmarks[386], landmarks[374]]);
-    const irisCenter = avgPoint([leftIris, rightIris]);
-    const eyeCenterY = (leftEyeCenter.y + rightEyeCenter.y) / 2;
-    const irisYOffset = (irisCenter.y - eyeCenterY) / faceHeight;
-
-    if (irisYOffset < -0.018 || vertical < 0.76) return 'UP';
-    if (irisYOffset > 0.024 || vertical > 0.76) return 'DOWN';
-    if (horizontal < 0.34) return 'LEFT';
-    if (horizontal > 0.66) return 'RIGHT';
-    return 'CENTER';
-  }
-
-  const faceXMin = Math.min(...landmarks.map(p => p.x));
-  const faceXMax = Math.max(...landmarks.map(p => p.x));
-  const faceYMin = Math.min(...landmarks.map(p => p.y));
-  const faceYMax = Math.max(...landmarks.map(p => p.y));
-  const nose = landmarks[1];
-  const horizontal = (nose.x - faceXMin) / Math.max(faceXMax - faceXMin, 0.001);
-  const vertical = (nose.y - faceYMin) / Math.max(faceYMax - faceYMin, 0.001);
-
-  if (vertical < 0.36) return 'UP';
-  if (vertical > 0.64) return 'DOWN';
-  if (horizontal < 0.42) return 'LEFT';
-  if (horizontal > 0.58) return 'RIGHT';
-  return 'CENTER';
-};
-// --- GAZE TRACKING END ---
 
 // Fisher-Yates shuffle
 const shuffleArray = <T,>(arr: T[]): T[] => {
@@ -165,9 +71,6 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   onViolation,
   onSuppressViolations,
   onPhaseActive,
-  // --- GAZE TRACKING START ---
-  onGazeEventsChange,
-  // --- GAZE TRACKING END ---
   violations,
 }) => {
   const recording     = examData.recording ?? {};
@@ -242,6 +145,10 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   const [isLoadingQuestions, setIsLoadingQuestions] = useState(false);
   const [questionLoadError, setQuestionLoadError]   = useState('');
 
+  // Pre-exam connection check (runs on the disclaimer phase, gates "Start Exam").
+  const [speedResult, setSpeedResult]   = useState<SpeedTestResult | null>(null);
+  const [speedTesting, setSpeedTesting] = useState(false);
+
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers]             = useState<Answer[]>([]);
   const [questionStatuses, setQuestionStatuses] = useState<QuestionStatus[]>([]);
@@ -256,35 +163,8 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   const questionTimerSecondsRef = useRef<Record<string, number>>({});
   const [currentQTimerDisplay, setCurrentQTimerDisplay] = useState<number | null>(null);
 
-  // --- GAZE TRACKING START ---
-  const [gazeEvents, setGazeEvents] = useState<GazeEvent[]>([]);
-  const [gazeWarning, setGazeWarning] = useState('');
-  const gazeEventsRef = useRef<GazeEvent[]>([]);
-  const gazeVideoRef = useRef<HTMLVideoElement | null>(null);
-  const gazeCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const faceMeshRef = useRef<FaceMesh | null>(null);
-  const gazeSampleTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const gazeProcessingRef = useRef(false);
-  const gazeStartMsRef = useRef<number>(0);
-  const gazeWarningTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const gazeConditionRef = useRef<Record<GazeEventType, {
-    startedAt: number | null;
-    eventIndex: number | null;
-    warned: boolean;
-    direction?: GazeDirection;
-  }>>({
-    LOOK_AWAY: { startedAt: null, eventIndex: null, warned: false },
-    NO_FACE: { startedAt: null, eventIndex: null, warned: false },
-    MULTI_FACE: { startedAt: null, eventIndex: null, warned: false },
-  });
-  // --- GAZE TRACKING END ---
-
   const allQuestionsRef = useRef(allQuestions);
   allQuestionsRef.current = allQuestions;
-  // --- GAZE TRACKING START ---
-  const currentQuestionIndexRef = useRef(currentQuestionIndex);
-  currentQuestionIndexRef.current = currentQuestionIndex;
-  // --- GAZE TRACKING END ---
 
   const sessionKeyRef = useRef(sessionKey);
   sessionKeyRef.current = sessionKey;
@@ -321,9 +201,6 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
     beginRecording,
     restartScreenRecording,
     stopAllRecording,
-    // --- GAZE TRACKING START ---
-    getCameraStream,
-    // --- GAZE TRACKING END ---
     screenStatus,
     cameraError,
     screenError,
@@ -346,6 +223,37 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   });
   const liveProctoringActive = liveStream && examPhase === 'active';
 
+  // ── Live connection indicator (active phase only) ────────────────────────────
+  const network = useNetworkStatus(examPhase === 'active');
+
+  // While the connection is down, network drops shouldn't be counted as
+  // tab-switch / focus-loss violations — suppress them for a short window.
+  useEffect(() => {
+    if (examPhase === 'active' && network.quality === 'offline') {
+      onSuppressViolations(15_000);
+    }
+  }, [network.quality, examPhase, onSuppressViolations]);
+
+  // ── Pre-exam connection check ────────────────────────────────────────────────
+  const runConnectionCheck = useCallback(async () => {
+    setSpeedTesting(true);
+    try {
+      const result = await runSpeedTest();
+      setSpeedResult(result);
+    } finally {
+      setSpeedTesting(false);
+    }
+  }, []);
+
+  // Auto-run on entering the disclaimer phase, then auto re-check every 10s so a
+  // candidate whose connection recovers doesn't have to keep clicking retry.
+  useEffect(() => {
+    if (examPhase !== 'disclaimer') return;
+    runConnectionCheck();
+    const interval = setInterval(runConnectionCheck, 10_000);
+    return () => clearInterval(interval);
+  }, [examPhase, runConnectionCheck]);
+
   // ── Verbal auto-start: VerbalRecorder handles its own countdown internally.
   // We just need to ensure the answer state is updated when recording completes.
   // (VerbalRecorder calls onVerbalRecorded → handleVerbalRecorded stores the blob;
@@ -353,197 +261,6 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
 
   const currentQuestion = allQuestions[currentQuestionIndex];
 
-  // --- GAZE TRACKING START ---
-  const syncGazeEvents = useCallback((events: GazeEvent[]) => {
-    gazeEventsRef.current = events;
-    setGazeEvents(events);
-    localStorage.setItem(GAZE_EVENTS_LS_KEY, JSON.stringify(events));
-    onGazeEventsChange?.(events);
-  }, [onGazeEventsChange]);
-
-  const showGazeWarning = useCallback((message: string) => {
-    setGazeWarning(message);
-    if (gazeWarningTimerRef.current) clearTimeout(gazeWarningTimerRef.current);
-    gazeWarningTimerRef.current = setTimeout(() => setGazeWarning(''), 3500);
-  }, []);
-
-  const currentGazeContext = useCallback(() => {
-    const q = allQuestionsRef.current[currentQuestionIndexRef.current];
-    return {
-      questionId: q?.id,
-      section: q?.type,
-    };
-  }, []);
-
-  const upsertGazeEvent = useCallback((
-    type: GazeEventType,
-    startedAt: number,
-    now: number,
-    direction?: GazeDirection,
-  ): number => {
-    const state = gazeConditionRef.current[type];
-    const event: GazeEvent = {
-      type,
-      direction: type === 'LOOK_AWAY' ? direction : undefined,
-      timestamp: Number(Math.max(0, (startedAt - gazeStartMsRef.current) / 1000).toFixed(2)),
-      duration: Number(((now - startedAt) / 1000).toFixed(2)),
-      ...currentGazeContext(),
-    };
-
-    const next = [...gazeEventsRef.current];
-    if (state.eventIndex == null) {
-      next.push(event);
-      state.eventIndex = next.length - 1;
-    } else {
-      next[state.eventIndex] = { ...next[state.eventIndex], ...event };
-    }
-    syncGazeEvents(next);
-    return state.eventIndex;
-  }, [currentGazeContext, syncGazeEvents]);
-
-  const resetGazeCondition = useCallback((type: GazeEventType) => {
-    gazeConditionRef.current[type] = {
-      startedAt: null,
-      eventIndex: null,
-      warned: false,
-    };
-  }, []);
-
-  const trackGazeCondition = useCallback((
-    type: GazeEventType,
-    active: boolean,
-    thresholdMs: number,
-    now: number,
-    direction?: GazeDirection,
-  ) => {
-    const state = gazeConditionRef.current[type];
-
-    if (!active) {
-      resetGazeCondition(type);
-      return;
-    }
-
-    if (state.startedAt == null || (type === 'LOOK_AWAY' && state.direction !== direction)) {
-      gazeConditionRef.current[type] = {
-        startedAt: now,
-        eventIndex: null,
-        warned: false,
-        direction,
-      };
-      return;
-    }
-
-    if (now - state.startedAt < thresholdMs) return;
-
-    upsertGazeEvent(type, state.startedAt, now, direction);
-    if (!state.warned) {
-      state.warned = true;
-      if (type === 'LOOK_AWAY') {
-        showGazeWarning('Please keep your eyes on the screen.');
-      } else if (type === 'NO_FACE') {
-        showGazeWarning('Face not detected. Please stay visible to the camera.');
-      } else {
-        showGazeWarning('Multiple faces detected. Only the candidate should be visible.');
-      }
-    }
-  }, [resetGazeCondition, showGazeWarning, upsertGazeEvent]);
-
-  const handleGazeResults = useCallback((results: FaceMeshResults) => {
-    const now = Date.now();
-    const faces = results.multiFaceLandmarks ?? [];
-    const faceCount = faces.length;
-
-    trackGazeCondition('NO_FACE', faceCount === 0, NO_FACE_THRESHOLD_MS, now);
-    trackGazeCondition('MULTI_FACE', faceCount > 1, MULTI_FACE_THRESHOLD_MS, now);
-
-    if (faceCount !== 1) {
-      resetGazeCondition('LOOK_AWAY');
-      return;
-    }
-
-    const direction = estimateGazeDirection(faces[0]);
-    trackGazeCondition('LOOK_AWAY', direction !== 'CENTER', LOOK_AWAY_THRESHOLD_MS, now, direction);
-  }, [resetGazeCondition, trackGazeCondition]);
-
-  const cleanupGazeTracking = useCallback(() => {
-    if (gazeSampleTimerRef.current) {
-      clearInterval(gazeSampleTimerRef.current);
-      gazeSampleTimerRef.current = null;
-    }
-    if (gazeWarningTimerRef.current) {
-      clearTimeout(gazeWarningTimerRef.current);
-      gazeWarningTimerRef.current = null;
-    }
-    gazeVideoRef.current?.pause();
-    if (gazeVideoRef.current) gazeVideoRef.current.srcObject = null;
-    faceMeshRef.current?.close().catch(() => undefined);
-    faceMeshRef.current = null;
-    gazeProcessingRef.current = false;
-    setGazeWarning('');
-  }, []);
-
-  const startGazeTracking = useCallback(async () => {
-    const stream = getCameraStream();
-    const video = gazeVideoRef.current;
-    const canvas = gazeCanvasRef.current;
-    if (!stream || !video || !canvas) return;
-
-    cleanupGazeTracking();
-    gazeStartMsRef.current = Date.now();
-    syncGazeEvents([]);
-
-    video.srcObject = stream;
-    video.muted = true;
-    video.playsInline = true;
-    await video.play().catch(() => undefined);
-
-    const faceMesh = new FaceMesh({
-      locateFile: (file) => FACE_MESH_ASSETS[file] ?? file,
-    });
-    faceMesh.setOptions({
-      maxNumFaces: 2,
-      refineLandmarks: true,
-      minDetectionConfidence: 0.6,
-      minTrackingConfidence: 0.6,
-    });
-    faceMesh.onResults(handleGazeResults);
-    await faceMesh.initialize();
-    faceMeshRef.current = faceMesh;
-
-    gazeSampleTimerRef.current = setInterval(() => {
-      if (!faceMeshRef.current || gazeProcessingRef.current || video.readyState < 2) return;
-
-      const width = video.videoWidth || 640;
-      const height = video.videoHeight || 480;
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-      ctx.drawImage(video, 0, 0, width, height);
-
-      gazeProcessingRef.current = true;
-      faceMeshRef.current
-        .send({ image: canvas })
-        .catch(() => undefined)
-        .finally(() => {
-          gazeProcessingRef.current = false;
-        });
-    }, GAZE_SAMPLE_MS);
-  }, [cleanupGazeTracking, getCameraStream, handleGazeResults, syncGazeEvents]);
-
-  useEffect(() => {
-    return () => cleanupGazeTracking();
-  }, [cleanupGazeTracking]);
-
-  useEffect(() => {
-    if (examPhase !== 'active') return;
-    startGazeTracking().catch(() => undefined);
-  }, [examPhase]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    localStorage.setItem(GAZE_EVENTS_LS_KEY, JSON.stringify(gazeEvents));
-  }, [gazeEvents]);
-  // --- GAZE TRACKING END ---
 
   useEffect(() => {
     if (currentQuestion && examPhase === 'active') {
@@ -607,11 +324,8 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   // Main exam timer — only runs when exam is active
   const doAutoSubmit = useCallback(() => {
     stopAllRecording();
-    // --- GAZE TRACKING START ---
-    cleanupGazeTracking();
-    // --- GAZE TRACKING END ---
     onSubmit(answersRef.current, questionOrderMapRef.current);
-  }, [cleanupGazeTracking, stopAllRecording, onSubmit]);
+  }, [stopAllRecording, onSubmit]);
 
   const doAutoSubmitRef = useRef(doAutoSubmit);
   doAutoSubmitRef.current = doAutoSubmit;
@@ -805,9 +519,6 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   const handleConfirmSubmit = async () => {
     setShowSubmitModal(false);
     stopAllRecording();
-    // --- GAZE TRACKING START ---
-    cleanupGazeTracking();
-    // --- GAZE TRACKING END ---
 
     // Upload verbal audio blobs that were NOT already uploaded at recording time.
     // Blobs uploaded at timer-completion are in uploadedVerbalRef — skip those.
@@ -1053,6 +764,67 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
             </p>
           )}
 
+          {/* Connection check — must pass before the exam can start */}
+          <div className={`mb-5 rounded-lg border px-4 py-3 ${
+            speedTesting
+              ? 'bg-blue-50 border-blue-200'
+              : speedResult?.ok
+              ? 'bg-green-50 border-green-200'
+              : speedResult
+              ? 'bg-red-50 border-red-200'
+              : 'bg-gray-50 border-gray-200'
+          }`}>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+                  speedTesting
+                    ? 'bg-blue-500 animate-pulse'
+                    : speedResult?.ok
+                    ? 'bg-green-500'
+                    : speedResult
+                    ? 'bg-red-500'
+                    : 'bg-gray-400'
+                }`} />
+                <span className="text-sm font-semibold text-gray-800">
+                  {speedTesting
+                    ? 'Checking your connection…'
+                    : speedResult?.ok
+                    ? 'Connection looks good'
+                    : speedResult
+                    ? 'Connection check failed'
+                    : 'Connection Check'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={runConnectionCheck}
+                disabled={speedTesting}
+                className="text-xs px-3 py-1 rounded-md border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition"
+              >
+                {speedTesting ? 'Testing…' : 'Retry test'}
+              </button>
+            </div>
+
+            {speedResult && !speedTesting && (
+              <div className="mt-2 text-xs text-gray-600">
+                {speedResult.reason && (
+                  <p className="text-red-600 mb-1">{speedResult.reason}</p>
+                )}
+                <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-gray-500">
+                  {speedResult.latencyMs != null && (
+                    <span>Latency: <span className="font-medium text-gray-700">{Math.round(speedResult.latencyMs)} ms</span></span>
+                  )}
+                  {speedResult.downloadMbps != null && (
+                    <span>Download: <span className="font-medium text-gray-700">{speedResult.downloadMbps.toFixed(2)} Mbps</span></span>
+                  )}
+                  {speedResult.uploadMbps != null && (
+                    <span>Upload: <span className="font-medium text-gray-700">{speedResult.uploadMbps.toFixed(2)} Mbps</span></span>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
           <label className="flex items-start gap-3 mb-6 cursor-pointer select-none">
             <input type="checkbox" checked={disclaimerAgreed}
               onChange={(e) => setDisclaimerAgreed(e.target.checked)}
@@ -1062,10 +834,15 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
             </span>
           </label>
 
-          <button onClick={handleStartExam} disabled={!disclaimerAgreed}
+          <button onClick={handleStartExam} disabled={!disclaimerAgreed || speedTesting || !speedResult?.ok}
             className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-4 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed text-lg">
             Start Exam
           </button>
+          {!speedTesting && speedResult && !speedResult.ok && (
+            <p className="text-center text-xs text-gray-500 mt-2">
+              You can start once the connection check passes.
+            </p>
+          )}
         </div>
       </div>
     );
@@ -1074,29 +851,6 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   // ── Active Exam UI ───────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gray-50 relative">
-      {/* --- GAZE TRACKING START --- */}
-      <video ref={gazeVideoRef} className="hidden" muted playsInline />
-      <canvas ref={gazeCanvasRef} className="hidden" />
-      {gazeWarning && (
-        <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-8 max-w-md text-center">
-            <div className="mb-4">
-              <svg className="w-16 h-16 text-red-600 mx-auto" fill="none"
-                stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-            </div>
-            <h3 className="text-xl font-bold text-gray-800 mb-4">Gaze Warning</h3>
-            <p className="text-gray-600 mb-6">{gazeWarning}</p>
-            <button onClick={() => setGazeWarning('')}
-              className="w-full bg-red-600 hover:bg-red-700 text-white font-semibold py-3 px-6 rounded-lg transition">
-              Continue Exam
-            </button>
-          </div>
-        </div>
-      )}
-      {/* --- GAZE TRACKING END --- */}
 
       {/* Submit confirmation modal */}
       {showSubmitModal && (
@@ -1151,6 +905,23 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
               <p className="text-sm text-gray-600">Student: {studentName} | Code: {examData.examCode}</p>
             </div>
             <div className="flex items-center gap-4 flex-wrap">
+              {/* Live connection indicator */}
+              <div className={`flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-full ${
+                network.quality === 'online'
+                  ? 'bg-green-50 text-green-700'
+                  : network.quality === 'slow'
+                  ? 'bg-amber-50 text-amber-700'
+                  : 'bg-red-50 text-red-700'
+              }`}>
+                <span className={`w-2 h-2 rounded-full ${
+                  network.quality === 'online'
+                    ? 'bg-green-500'
+                    : network.quality === 'slow'
+                    ? 'bg-amber-500 animate-pulse'
+                    : 'bg-red-500 animate-pulse'
+                }`} />
+                {network.quality === 'online' ? 'Online' : network.quality === 'slow' ? 'Slow' : 'Offline'}
+              </div>
               {recording.camera && (
                 <div className="flex items-center gap-1.5 text-xs text-gray-600">
                   <span className={`w-2 h-2 rounded-full ${cameraReady ? 'bg-red-500 animate-pulse' : 'bg-gray-400'}`} />
@@ -1178,6 +949,19 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
             </div>
           </div>
         </div>
+
+        {/* Connection warning banner */}
+        {network.quality !== 'online' && (
+          <div className={`px-4 py-2 text-center text-sm font-medium ${
+            network.quality === 'slow'
+              ? 'bg-amber-100 text-amber-800'
+              : 'bg-red-100 text-red-800'
+          }`}>
+            {network.quality === 'slow'
+              ? '⚠ Your connection is slow. Your answers are still being saved — avoid switching networks.'
+              : '⚠ You appear to be offline. Your answers are saved locally and will submit once you reconnect.'}
+          </div>
+        )}
 
         {/* Body */}
         <div className="max-w-7xl mx-auto p-4 grid grid-cols-1 lg:grid-cols-4 gap-4">

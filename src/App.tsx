@@ -3,7 +3,7 @@ import { ExamInterface } from './components/ExamInterface';
 import { ResultScreen } from './components/ResultScreen';
 import { FullscreenManager } from './components/FullscreenManager';
 import { ViolationModal } from './components/ViolationModal';
-import { ExamData, Answer, GazeEvent } from './types/exam';
+import { ExamData, Answer } from './types/exam';
 import { loadExamData } from './utils/examUtils';
 import { BACKEND_URL } from './config';
 
@@ -37,18 +37,6 @@ const decodeJwtPayload = (token: string): Record<string, any> | null => {
 
 const CAREERS_URL      = 'https://www.azalio.io/careers/';
 const REDIRECT_SECONDS = 10;
-
-// --- GAZE TRACKING START ---
-const GAZE_EVENTS_LS_KEY = 'qs_exam_gaze_events';
-
-const readStoredGazeEvents = (): GazeEvent[] => {
-  try {
-    return JSON.parse(localStorage.getItem(GAZE_EVENTS_LS_KEY) ?? '[]') as GazeEvent[];
-  } catch {
-    return [];
-  }
-};
-// --- GAZE TRACKING END ---
 
 function CareersRedirectPage() {
   const [countdown, setCountdown] = useState(REDIRECT_SECONDS);
@@ -116,9 +104,6 @@ function App() {
   const [showViolationModal, setShowViolationModal] = useState(false);
   const [pendingSubmitAnswers, setPendingSubmitAnswers] = useState<Answer[]>([]);
   const [pendingOrderMap, setPendingOrderMap]           = useState<Record<string, number>>({});
-  // --- GAZE TRACKING START ---
-  const [gazeEvents, setGazeEvents] = useState<GazeEvent[]>([]);
-  // --- GAZE TRACKING END ---
   const [resultData, setResultData] = useState<{
     score: number; totalMarks: number; details: any[];
   } | null>(null);
@@ -161,10 +146,6 @@ const { jti, sub: email, name, examCode, liveStream } = payload;
           localStorage.removeItem('qs_exam_answers');
           localStorage.removeItem('qs_exam_order_map');
           localStorage.removeItem('qs_exam_session_meta');
-          // --- GAZE TRACKING START ---
-          localStorage.removeItem(GAZE_EVENTS_LS_KEY);
-          setGazeEvents([]);
-          // --- GAZE TRACKING END ---
           setJwtError('This exam has already been submitted. Please contact your administrator if you believe this is a mistake.');
           return;
         }
@@ -186,13 +167,10 @@ const { jti, sub: email, name, examCode, liveStream } = payload;
           const crashOrderMap: Record<string, number> = JSON.parse(
             localStorage.getItem('qs_exam_order_map') ?? '{}'
           );
-          // --- GAZE TRACKING START ---
-          const crashGazeEvents = readStoredGazeEvents();
-          // --- GAZE TRACKING END ---
           const crashMeta: Record<string, string> = JSON.parse(crashMetaRaw);
 
           // Wipe all crash-recovery data before doing anything else
-          ['qs_exam_answers', 'qs_exam_order_map', 'qs_exam_session_meta', GAZE_EVENTS_LS_KEY, LS_KEY]
+          ['qs_exam_answers', 'qs_exam_order_map', 'qs_exam_session_meta', LS_KEY]
             .forEach(k => localStorage.removeItem(k));
 
           setExamData(examDataObj);
@@ -211,9 +189,6 @@ const { jti, sub: email, name, examCode, liveStream } = payload;
               examTitle:        examDataObj.examTitle,
               answers:          crashAnswers,
               questionOrderMap: crashOrderMap,
-              // --- GAZE TRACKING START ---
-              gazeEvents:        crashGazeEvents,
-              // --- GAZE TRACKING END ---
               startedAt:        crashMeta.startTime     || null,
             }),
           })
@@ -241,10 +216,6 @@ const { jti, sub: email, name, examCode, liveStream } = payload;
         const startTime = new Date().toISOString();
 
         // Persist session metadata for crash-recovery on next reload
-        // --- GAZE TRACKING START ---
-        localStorage.removeItem(GAZE_EVENTS_LS_KEY);
-        setGazeEvents([]);
-        // --- GAZE TRACKING END ---
         localStorage.setItem('qs_exam_session_meta', JSON.stringify({
           sessionKey:   sk,
           studentName:  name  ?? '',
@@ -312,9 +283,6 @@ const { jti, sub: email, name, examCode, liveStream } = payload;
       const savedOrderMap: Record<string, number> = JSON.parse(
         localStorage.getItem('qs_exam_order_map') ?? '{}'
       );
-      // --- GAZE TRACKING START ---
-      const savedGazeEvents = readStoredGazeEvents();
-      // --- GAZE TRACKING END ---
 
       const payload = {
         sessionKey,
@@ -325,9 +293,6 @@ const { jti, sub: email, name, examCode, liveStream } = payload;
         examTitle:        examData.examTitle,
         answers:          savedAnswers,
         questionOrderMap: savedOrderMap,
-        // --- GAZE TRACKING START ---
-        gazeEvents:        savedGazeEvents,
-        // --- GAZE TRACKING END ---
         startedAt:        examStartTime,
       };
 
@@ -376,10 +341,6 @@ const { jti, sub: email, name, examCode, liveStream } = payload;
     localStorage.removeItem('qs_exam_answers');
     localStorage.removeItem('qs_exam_order_map');
     localStorage.removeItem('qs_exam_session_meta');
-    // --- GAZE TRACKING START ---
-    const finalGazeEvents = gazeEvents.length > 0 ? gazeEvents : readStoredGazeEvents();
-    localStorage.removeItem(GAZE_EVENTS_LS_KEY);
-    // --- GAZE TRACKING END ---
 
     setIsSubmitting(true);
 
@@ -392,9 +353,6 @@ const { jti, sub: email, name, examCode, liveStream } = payload;
       examTitle:        examData.examTitle,
       answers,
       questionOrderMap,
-      // --- GAZE TRACKING START ---
-      gazeEvents:       finalGazeEvents,
-      // --- GAZE TRACKING END ---
       startedAt:        examStartTime,
       violations,
     };
@@ -438,10 +396,6 @@ const { jti, sub: email, name, examCode, liveStream } = payload;
     setJwtError('');
     setIsSubmitting(false);
     setShowViolationModal(false);
-    // --- GAZE TRACKING START ---
-    setGazeEvents([]);
-    localStorage.removeItem(GAZE_EVENTS_LS_KEY);
-    // --- GAZE TRACKING END ---
   };
 
   // ── JWT error screen ────────────────────────────────────────────────────────
@@ -503,9 +457,6 @@ const { jti, sub: email, name, examCode, liveStream } = payload;
           onSubmit={handleExamSubmit}
           onViolation={handleViolation}
           onSuppressViolations={handleSuppressViolations}
-          // --- GAZE TRACKING START ---
-          onGazeEventsChange={setGazeEvents}
-          // --- GAZE TRACKING END ---
           onPhaseActive={() => setExamPhase('active')}
           violations={violations}
         />

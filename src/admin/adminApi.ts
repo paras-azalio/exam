@@ -64,10 +64,6 @@ export interface ResultRow {
    * Parse with JSON.parse() → McqDetailRow[]. Null for old submissions.
    */
   answersJson: string | null;
-  // --- GAZE TRACKING START ---
-  /** JSON array of client-side gaze events captured during the exam. */
-  gazeEvents: string | null;
-  // --- GAZE TRACKING END ---
 }
 
 const authHeader = (creds: string) => ({

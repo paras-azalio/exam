@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { useParams, useLocation, Link } from 'react-router-dom';
+import { useParams, useLocation, Link, useNavigate } from 'react-router-dom';
 import { adminApi, ExamRow } from './adminApi';
+import { useEscapeKey } from './useEscapeKey';
 
 interface Props {
   creds: string;
@@ -52,10 +53,14 @@ interface ParsedQuestion {
 export default function ExamDetailPage({ creds }: Props) {
   const { examCode } = useParams<{ examCode: string }>();
   const location = useLocation();
+  const navigate = useNavigate();
   const [exam, setExam] = useState<ExamRow | null>(
     (location.state as { exam?: ExamRow })?.exam ?? null,
   );
   const [error, setError] = useState('');
+
+  // Escape = go back to the admin exam list.
+  useEscapeKey(() => navigate('/adm'));
 
   useEffect(() => {
     if (exam) return;

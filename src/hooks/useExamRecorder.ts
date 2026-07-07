@@ -118,12 +118,6 @@ export const useExamRecorder = (sessionKey: string | null) => {
   const [cameraError, setCameraError]   = useState<string | null>(null);
   const [screenError, setScreenError]   = useState<string | null>(null);
 
-  // --- GAZE TRACKING START ---
-  const getCameraStream = useCallback((): MediaStream | null => {
-    return cameraStream.current;
-  }, []);
-  // --- GAZE TRACKING END ---
-
   // ── Phase 1a: init camera stream ─────────────────────────────────────────────
   // Requests permission and stores the stream. Does NOT start recording.
 
@@ -277,9 +271,6 @@ export const useExamRecorder = (sessionKey: string | null) => {
     beginRecording,
     restartScreenRecording,
     stopAllRecording,
-    // --- GAZE TRACKING START ---
-    getCameraStream,
-    // --- GAZE TRACKING END ---
     screenStatus,
     cameraError,
     screenError,

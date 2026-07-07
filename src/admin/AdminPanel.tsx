@@ -6,6 +6,7 @@ import ResultsModal from './ResultsModal';
 import LiveParticipantsModal from './LiveParticipantsModal';
 import { Link } from 'react-router-dom';
 import { ExamFormState, defaultForm, jsonToForm } from './types';
+import { useEscapeKey } from './useEscapeKey';
 
 interface Props {
   creds: string;
@@ -140,6 +141,19 @@ const filteredExams = debouncedQuery
       e.examTitle.toLowerCase().includes(debouncedQuery)
     )
   : exams;
+
+  // ── Escape = go back ──────────────────────────────────────────────────────────
+  // Closes the topmost open layer, then (if nothing is open) steps the Trash view
+  // back to the live Exams list. Order mirrors visual stacking: newest layer first.
+  useEscapeKey(() => {
+    if (modal)              { setModal(null);        return; }
+    if (resultsExam)        { setResultsExam(null);  return; }
+    if (linkExam)           { setLinkExam(null);     return; }
+    if (showLive)           { setShowLive(false);    return; }
+    if (permDeleteId != null) { setPermDeleteId(null); return; }
+    if (trashId != null)    { setTrashId(null);      return; }
+    if (view === 'trash')   { setView('live');       return; }
+  });
 
   // ── render ──────────────────────────────────────────────────────────────────
 
