@@ -905,14 +905,19 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
               <p className="text-sm text-gray-600">Student: {studentName} | Code: {examData.examCode}</p>
             </div>
             <div className="flex items-center gap-4 flex-wrap">
-              {/* Live connection indicator */}
-              <div className={`flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-full ${
-                network.quality === 'online'
-                  ? 'bg-green-50 text-green-700'
-                  : network.quality === 'slow'
-                  ? 'bg-amber-50 text-amber-700'
-                  : 'bg-red-50 text-red-700'
-              }`}>
+              {/* Live connection indicator — shows live ping so it's transparent */}
+              <div
+                title={network.latencyMs != null
+                  ? `Live ping to the exam server: ${Math.round(network.latencyMs)} ms`
+                  : 'Waiting for the exam server…'}
+                className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ${
+                  network.quality === 'online'
+                    ? 'bg-green-50 text-green-700'
+                    : network.quality === 'slow'
+                    ? 'bg-amber-50 text-amber-700'
+                    : 'bg-red-50 text-red-700'
+                }`}
+              >
                 <span className={`w-2 h-2 rounded-full ${
                   network.quality === 'online'
                     ? 'bg-green-500'
@@ -920,7 +925,10 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
                     ? 'bg-amber-500 animate-pulse'
                     : 'bg-red-500 animate-pulse'
                 }`} />
-                {network.quality === 'online' ? 'Online' : network.quality === 'slow' ? 'Slow' : 'Offline'}
+                <span>{network.quality === 'online' ? 'Online' : network.quality === 'slow' ? 'Slow' : 'Offline'}</span>
+                {network.latencyMs != null && (
+                  <span className="tabular-nums opacity-70">· {Math.round(network.latencyMs)} ms</span>
+                )}
               </div>
               {recording.camera && (
                 <div className="flex items-center gap-1.5 text-xs text-gray-600">
@@ -950,7 +958,7 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
           </div>
         </div>
 
-        {/* Connection warning banner */}
+        {/* Connection warning banner — only for a *sustained* degraded connection */}
         {network.quality !== 'online' && (
           <div className={`px-4 py-2 text-center text-sm font-medium ${
             network.quality === 'slow'
@@ -958,8 +966,8 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
               : 'bg-red-100 text-red-800'
           }`}>
             {network.quality === 'slow'
-              ? '⚠ Your connection is slow. Your answers are still being saved — avoid switching networks.'
-              : '⚠ You appear to be offline. Your answers are saved locally and will submit once you reconnect.'}
+              ? 'Your connection is running slow, but the exam is working normally and your answers are being saved. You can keep going.'
+              : 'You appear to be offline. Don\'t worry — your answers are saved on this device and will submit automatically once you reconnect.'}
           </div>
         )}
 
