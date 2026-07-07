@@ -158,12 +158,14 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
               <h2 className="text-xl font-bold text-gray-800 mb-4">Performance Summary</h2>
               {/* Verbal questions are scored asynchronously — exclude from MCQ counters */}
               {(() => {
-                const mcq     = details.filter((d) => d.questionType !== 'verbal');
+                const mcq     = details.filter((d) => d.questionType !== 'verbal' && d.questionType !== 'subjective');
                 const verbal  = details.filter((d) => d.questionType === 'verbal');
+                const subjective = details.filter((d) => d.questionType === 'subjective');
                 const correct = mcq.filter((d) => d.correct).length;
-                const wrong   = mcq.filter((d) => !d.correct && d.marksAwarded < 0).length;
-                const skip    = mcq.filter((d) => d.marksAwarded === 0 && !d.correct).length;
-                const cols    = verbal.length > 0 ? 5 : 4;
+                const wrong   = mcq.filter((d) => !d.correct && d.userAnswer !=null).length;
+                const skip    = mcq.filter((d) => d.userAnswer==null).length;
+                const extraCols    = (verbal.length > 0 ? 1 : 0) + (subjective.length > 0 ? 1 : 0);
+                const cols    = 3+extraCols;
                 return (
                   <>
                     <div className={`grid grid-cols-2 md:grid-cols-${cols} gap-4 mb-4`}>
@@ -183,6 +185,12 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
                         <div className="text-center">
                           <p className="text-2xl font-bold text-orange-500">{verbal.length}</p>
                           <p className="text-sm text-gray-600">Verbal</p>
+                        </div>
+                      )}
+                       {subjective.length > 0 && (
+                        <div className="text-center">
+                          <p className="text-2xl font-bold text-blue-500">{subjective.length}</p>
+                          <p className="text-sm text-gray-600">Subjective</p>
                         </div>
                       )}
                       <div className="text-center">
@@ -212,14 +220,17 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
                     <span className="font-medium text-gray-700">Question {detail.questionNumber}</span>
                     <div className="flex items-center gap-4">
                       {detail.questionType === 'verbal' ? (
+                        
                         <span className="font-semibold text-orange-600">Verbal — Audio Recorded</span>
+                      ) : detail.questionType === 'subjective' ?(
+                         <span className="font-semibold text-blue-600">Subjective — AI Evaluated</span>
                       ) : (
                         <span className={`font-semibold ${detail.correct ? 'text-green-600' : 'text-red-600'}`}>
                           {detail.correct ? '✓ Correct' : '✗ Incorrect'}
                         </span>
                       )}
                       <span className="text-gray-600">
-                        {detail.questionType === 'verbal'
+                        {detail.questionType === 'verbal'|| detail.questionType === 'subjective'
                           ? `— / ${detail.totalMarks}`
                           : `${detail.marksAwarded >= 0 ? '+' : ''}${detail.marksAwarded.toFixed(2)} / ${detail.totalMarks}`
                         }

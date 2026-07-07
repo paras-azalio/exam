@@ -49,6 +49,25 @@ export const FullscreenManager: React.FC<FullscreenManagerProps> = ({
     }
   }, [examActive]);
 
+  // ── Text selection blocking ──────────────────────────────────────────────
+useEffect(() => {
+  if (!examActive) return;
+  document.body.style.userSelect = 'none';
+  return () => { document.body.style.userSelect = ''; };
+}, [examActive]);
+
+// ── Back / Forward navigation blocking ──────────────────────────────────
+useEffect(() => {
+  if (!examActive) return;
+  window.history.pushState(null, '', window.location.href);
+  const handlePopState = () => {
+    window.history.pushState(null, '', window.location.href);
+    registerViolation('Browser back/forward navigation is not allowed.');
+  };
+  window.addEventListener('popstate', handlePopState);
+  return () => window.removeEventListener('popstate', handlePopState);
+}, [examActive]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (!examActive) return;
 
@@ -74,6 +93,18 @@ export const FullscreenManager: React.FC<FullscreenManagerProps> = ({
     // ── right-click blocked ──────────────────────────────────────────────────
     const handleContext = (e: MouseEvent) => e.preventDefault();
 
+    // ── copy / paste / cut blocked ───────────────────────────────────────────
+    const handleCopy  = (e: ClipboardEvent) => e.preventDefault();
+    const handlePaste = (e: ClipboardEvent) => e.preventDefault();
+    const handleCut   = (e: ClipboardEvent) => e.preventDefault();
+
+// ── window resize / multi-monitor detection ──────────────────────────────
+    const handleResize = () => {
+    if (!document.fullscreenElement) {
+    registerViolation('Window resized or moved — please stay in fullscreen.');
+  }
+};
+
     // ── keyboard: block devtools combos and refresh ──────────────────────────
     const handleKeys = (e: KeyboardEvent) => {
       const isDevtools =
@@ -90,6 +121,19 @@ export const FullscreenManager: React.FC<FullscreenManagerProps> = ({
       if (e.key === 'F5' || (e.ctrlKey && ['r', 'R'].includes(e.key))) {
         e.preventDefault();
       }
+
+      // ── block print ──────────────────────────────────────────────────────
+      if (e.ctrlKey && ['p', 'P'].includes(e.key)) {
+      e.preventDefault();
+      return;
+}
+ 
+// ── block screenshot key ─────────────────────────────────────────────
+      if (e.key === 'PrintScreen') {
+      e.preventDefault();
+      registerViolation('Screenshots are not allowed during the exam.');
+      return;
+      }
     };
 
     // ── devtools size heuristic (docked devtools) ────────────────────────────
@@ -103,6 +147,10 @@ export const FullscreenManager: React.FC<FullscreenManagerProps> = ({
     }, 2000);
 
     window.addEventListener('blur', handleBlur);
+    window.addEventListener('resize', handleResize);
+    document.addEventListener('copy',  handleCopy);
+    document.addEventListener('paste', handlePaste);
+    document.addEventListener('cut',   handleCut);
     document.addEventListener('visibilitychange', handleVisibility);
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     document.addEventListener('contextmenu', handleContext);
@@ -110,6 +158,10 @@ export const FullscreenManager: React.FC<FullscreenManagerProps> = ({
 
     return () => {
       window.removeEventListener('blur', handleBlur);
+      window.removeEventListener('resize', handleResize);
+      document.removeEventListener('copy',  handleCopy);
+      document.removeEventListener('paste', handlePaste);
+      document.removeEventListener('cut',   handleCut);
       document.removeEventListener('visibilitychange', handleVisibility);
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
       document.removeEventListener('contextmenu', handleContext);

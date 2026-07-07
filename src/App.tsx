@@ -9,6 +9,11 @@ import { BACKEND_URL } from './config';
 
 type AppState = 'login' | 'exam' | 'result';
 
+/**
+ * Returns true when the page is running inside Safe Exam Browser.
+ * SEB injects "SEB/" into the User-Agent string on all platforms.
+ */
+
 const generateSessionKey = (name: string, examCode: string): string => {
   const ts       = Date.now();
   const safeName = name.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_]/g, '');
@@ -92,6 +97,7 @@ function App() {
   const [examPhase, setExamPhase]         = useState<'setup' | 'disclaimer' | 'active'>('setup');
   const [examStartTime, setExamStartTime] = useState<string | null>(null);
   const [isJwtMode, setIsJwtMode]         = useState(false);
+  const [isLiveStream, setIsLiveStream]   = useState(false);
   const [rawJwtToken, setRawJwtToken]     = useState('');
   const [jwtError, setJwtError]           = useState('');
   const [isSubmitting, setIsSubmitting]   = useState(false);
@@ -127,8 +133,9 @@ function App() {
       return;
     }
 
-    const { jti, sub: email, name, examCode } = payload;
+const { jti, sub: email, name, examCode, liveStream } = payload;
     if (!examCode) { setJwtError('Invalid invite link: missing exam code.'); return; }
+
 
     // Check if already submitted
     fetch(`${BACKEND_URL}/api/exam/check-token/${jti}`)
@@ -226,6 +233,7 @@ function App() {
         setViolations(0);
         setExamStartTime(startTime);
         setIsJwtMode(true);
+        setIsLiveStream(!!liveStream);
         setState('exam');
       })
       .catch(() => setJwtError('Failed to load exam. Please try again.'));
@@ -346,6 +354,7 @@ function App() {
       answers,
       questionOrderMap,
       startedAt:        examStartTime,
+      violations,
     };
 
     try {
@@ -382,6 +391,7 @@ function App() {
     setResultData(null);
     setExamStartTime(null);
     setIsJwtMode(false);
+    setIsLiveStream(false);
     setRawJwtToken('');
     setJwtError('');
     setIsSubmitting(false);
@@ -443,6 +453,7 @@ function App() {
           sessionKey={sessionKey}
           jwtToken={rawJwtToken}
           isJwtMode={isJwtMode}
+          liveStream={isLiveStream}
           onSubmit={handleExamSubmit}
           onViolation={handleViolation}
           onSuppressViolations={handleSuppressViolations}

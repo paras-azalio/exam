@@ -5,6 +5,11 @@ import { QuestionNavigator } from './QuestionNavigator';
 import { JobDescriptionPage } from './JobDescriptionPage';
 import { formatTime, loadExamQuestions } from '../utils/examUtils';
 import { useExamRecorder } from '../hooks/useExamRecorder';
+import { useWebRTCStream } from '../hooks/useWebRTCStream';
+import { useNetworkStatus } from '../hooks/useNetworkStatus';
+import { runSpeedTest, SpeedTestResult } from '../utils/speedTest';
+import FloatingProctorWindow from './FloatingProctorWindow';
+import ChatWidget from './ChatWidget';
 import { BACKEND_URL } from '../config';
 
 interface ExamInterfaceProps {
@@ -15,6 +20,8 @@ interface ExamInterfaceProps {
   /** Raw JWT invite token — used to authenticate the /questions fetch. */
   jwtToken?: string;
   isJwtMode?: boolean;
+  /** From the JWT "liveStream" claim — when true, stream camera+screen to HR live. */
+  liveStream?: boolean;
   onSubmit: (answers: Answer[], questionOrderMap: Record<string, number>) => void;
   onSuppressViolations: (ms: number) => void;
   onPhaseActive: () => void;
@@ -59,6 +66,7 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   sessionKey,
   jwtToken = '',
   isJwtMode = false,
+  liveStream = false,
   onSubmit,
   onViolation,
   onSuppressViolations,
@@ -137,6 +145,10 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   const [isLoadingQuestions, setIsLoadingQuestions] = useState(false);
   const [questionLoadError, setQuestionLoadError]   = useState('');
 
+  // Pre-exam connection check (runs on the disclaimer phase, gates "Start Exam").
+  const [speedResult, setSpeedResult]   = useState<SpeedTestResult | null>(null);
+  const [speedTesting, setSpeedTesting] = useState(false);
+
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers]             = useState<Answer[]>([]);
   const [questionStatuses, setQuestionStatuses] = useState<QuestionStatus[]>([]);
@@ -194,7 +206,53 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
     screenError,
     setCameraError,
     setScreenError,
+    cameraStreamRef,
+    screenStreamRef,
   } = useExamRecorder(sessionKey);
+
+  // ── Live proctoring: stream camera + screen to HR Admins in real time ─────────
+  // Enabled only when the JWT carried liveStream=true AND the exam is active, so
+  // the streams already exist (recording has begun) and there is something to send.
+  const liveProctor = useWebRTCStream({
+    enabled: liveStream && examPhase === 'active',
+    sessionKey,
+    studentName,
+    examCode: examData.examCode,
+    cameraStreamRef,
+    screenStreamRef,
+  });
+  const liveProctoringActive = liveStream && examPhase === 'active';
+
+  // ── Live connection indicator (active phase only) ────────────────────────────
+  const network = useNetworkStatus(examPhase === 'active');
+
+  // While the connection is down, network drops shouldn't be counted as
+  // tab-switch / focus-loss violations — suppress them for a short window.
+  useEffect(() => {
+    if (examPhase === 'active' && network.quality === 'offline') {
+      onSuppressViolations(15_000);
+    }
+  }, [network.quality, examPhase, onSuppressViolations]);
+
+  // ── Pre-exam connection check ────────────────────────────────────────────────
+  const runConnectionCheck = useCallback(async () => {
+    setSpeedTesting(true);
+    try {
+      const result = await runSpeedTest();
+      setSpeedResult(result);
+    } finally {
+      setSpeedTesting(false);
+    }
+  }, []);
+
+  // Auto-run on entering the disclaimer phase, then auto re-check every 10s so a
+  // candidate whose connection recovers doesn't have to keep clicking retry.
+  useEffect(() => {
+    if (examPhase !== 'disclaimer') return;
+    runConnectionCheck();
+    const interval = setInterval(runConnectionCheck, 10_000);
+    return () => clearInterval(interval);
+  }, [examPhase, runConnectionCheck]);
 
   // ── Verbal auto-start: VerbalRecorder handles its own countdown internally.
   // We just need to ensure the answer state is updated when recording completes.
@@ -202,6 +260,8 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   //  onAnswerChange('recorded') marks the question as answered in the navigator.)
 
   const currentQuestion = allQuestions[currentQuestionIndex];
+
+
   useEffect(() => {
     if (currentQuestion && examPhase === 'active') {
       setQuestionStatuses((prev) =>
@@ -424,6 +484,15 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
       return [...prev, { questionId: currentQuestion.id, answer }];
     });
   };
+
+  const handleClearResponse = () => {
+  setAnswers((prev) => prev.filter((a) => a.questionId !== currentQuestion.id));
+  setQuestionStatuses((prev) =>
+    prev.map((s) =>
+      s.questionId === currentQuestion.id ? { ...s, status: 'not-answered' } : s
+    )
+  );
+};
 
   const handleMarkToggle = () => {
     setAnswers((prev) => {
@@ -695,6 +764,67 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
             </p>
           )}
 
+          {/* Connection check — must pass before the exam can start */}
+          <div className={`mb-5 rounded-lg border px-4 py-3 ${
+            speedTesting
+              ? 'bg-blue-50 border-blue-200'
+              : speedResult?.ok
+              ? 'bg-green-50 border-green-200'
+              : speedResult
+              ? 'bg-red-50 border-red-200'
+              : 'bg-gray-50 border-gray-200'
+          }`}>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+                  speedTesting
+                    ? 'bg-blue-500 animate-pulse'
+                    : speedResult?.ok
+                    ? 'bg-green-500'
+                    : speedResult
+                    ? 'bg-red-500'
+                    : 'bg-gray-400'
+                }`} />
+                <span className="text-sm font-semibold text-gray-800">
+                  {speedTesting
+                    ? 'Checking your connection…'
+                    : speedResult?.ok
+                    ? 'Connection looks good'
+                    : speedResult
+                    ? 'Connection check failed'
+                    : 'Connection Check'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={runConnectionCheck}
+                disabled={speedTesting}
+                className="text-xs px-3 py-1 rounded-md border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition"
+              >
+                {speedTesting ? 'Testing…' : 'Retry test'}
+              </button>
+            </div>
+
+            {speedResult && !speedTesting && (
+              <div className="mt-2 text-xs text-gray-600">
+                {speedResult.reason && (
+                  <p className="text-red-600 mb-1">{speedResult.reason}</p>
+                )}
+                <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-gray-500">
+                  {speedResult.latencyMs != null && (
+                    <span>Latency: <span className="font-medium text-gray-700">{Math.round(speedResult.latencyMs)} ms</span></span>
+                  )}
+                  {speedResult.downloadMbps != null && (
+                    <span>Download: <span className="font-medium text-gray-700">{speedResult.downloadMbps.toFixed(2)} Mbps</span></span>
+                  )}
+                  {speedResult.uploadMbps != null && (
+                    <span>Upload: <span className="font-medium text-gray-700">{speedResult.uploadMbps.toFixed(2)} Mbps</span></span>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
           <label className="flex items-start gap-3 mb-6 cursor-pointer select-none">
             <input type="checkbox" checked={disclaimerAgreed}
               onChange={(e) => setDisclaimerAgreed(e.target.checked)}
@@ -704,10 +834,15 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
             </span>
           </label>
 
-          <button onClick={handleStartExam} disabled={!disclaimerAgreed}
+          <button onClick={handleStartExam} disabled={!disclaimerAgreed || speedTesting || !speedResult?.ok}
             className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-4 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed text-lg">
             Start Exam
           </button>
+          {!speedTesting && speedResult && !speedResult.ok && (
+            <p className="text-center text-xs text-gray-500 mt-2">
+              You can start once the connection check passes.
+            </p>
+          )}
         </div>
       </div>
     );
@@ -716,6 +851,7 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
   // ── Active Exam UI ───────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gray-50 relative">
+
       {/* Submit confirmation modal */}
       {showSubmitModal && (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[9999] p-4">
@@ -769,6 +905,31 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
               <p className="text-sm text-gray-600">Student: {studentName} | Code: {examData.examCode}</p>
             </div>
             <div className="flex items-center gap-4 flex-wrap">
+              {/* Live connection indicator — shows live ping so it's transparent */}
+              <div
+                title={network.latencyMs != null
+                  ? `Live ping to the exam server: ${Math.round(network.latencyMs)} ms`
+                  : 'Waiting for the exam server…'}
+                className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ${
+                  network.quality === 'online'
+                    ? 'bg-green-50 text-green-700'
+                    : network.quality === 'slow'
+                    ? 'bg-amber-50 text-amber-700'
+                    : 'bg-red-50 text-red-700'
+                }`}
+              >
+                <span className={`w-2 h-2 rounded-full ${
+                  network.quality === 'online'
+                    ? 'bg-green-500'
+                    : network.quality === 'slow'
+                    ? 'bg-amber-500 animate-pulse'
+                    : 'bg-red-500 animate-pulse'
+                }`} />
+                <span>{network.quality === 'online' ? 'Online' : network.quality === 'slow' ? 'Slow' : 'Offline'}</span>
+                {network.latencyMs != null && (
+                  <span className="tabular-nums opacity-70">· {Math.round(network.latencyMs)} ms</span>
+                )}
+              </div>
               {recording.camera && (
                 <div className="flex items-center gap-1.5 text-xs text-gray-600">
                   <span className={`w-2 h-2 rounded-full ${cameraReady ? 'bg-red-500 animate-pulse' : 'bg-gray-400'}`} />
@@ -796,6 +957,19 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
             </div>
           </div>
         </div>
+
+        {/* Connection warning banner — only for a *sustained* degraded connection */}
+        {network.quality !== 'online' && (
+          <div className={`px-4 py-2 text-center text-sm font-medium ${
+            network.quality === 'slow'
+              ? 'bg-amber-100 text-amber-800'
+              : 'bg-red-100 text-red-800'
+          }`}>
+            {network.quality === 'slow'
+              ? 'Your connection is running slow, but the exam is working normally and your answers are being saved. You can keep going.'
+              : 'You appear to be offline. Don\'t worry — your answers are saved on this device and will submit automatically once you reconnect.'}
+          </div>
+        )}
 
         {/* Body */}
         <div className="max-w-7xl mx-auto p-4 grid grid-cols-1 lg:grid-cols-4 gap-4">
@@ -840,11 +1014,27 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
                 Previous
               </button>
               <div className="text-sm text-gray-600">Question {currentQuestionIndex + 1} of {allQuestions.length}</div>
+              
+              <div className="flex items-center gap-[10px]">
+              <button
+                onClick={handleClearResponse}
+                disabled={
+                !currentAnswer ||
+                (Array.isArray(currentAnswer.answer)
+                ? currentAnswer.answer.length === 0
+                : currentAnswer.answer === '') ||
+                currentQuestion?.type === 'verbal' ||
+                currentQuestion?.type === 'subjective'
+              }
+                className="px-4 py-2 bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100 disabled:opacity-40 disabled:cursor-not-allowed transition font-medium text-sm">
+                Clear Response
+              </button>
               <button onClick={handleNext}
                 disabled={currentQuestionIndex === allQuestions.length - 1}
                 className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition font-medium">
                 {currentQuestionIndex === allQuestions.length - 1 ? 'Last Question' : 'Next'}
               </button>
+            </div>
             </div>
 
             <div className="bg-white rounded-lg p-4 flex items-center justify-between">
@@ -872,6 +1062,18 @@ export const ExamInterface: React.FC<ExamInterfaceProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Live proctoring: proctor's PiP video/voice + two-way chat */}
+      {liveProctoringActive && (
+        <>
+          <FloatingProctorWindow
+            stream={liveProctor.adminStream}
+            videoActive={liveProctor.adminMedia.video}
+            audioActive={liveProctor.adminMedia.audio}
+          />
+          <ChatWidget messages={liveProctor.messages} onSend={liveProctor.sendChat} />
+        </>
+      )}
     </div>
   );
 };

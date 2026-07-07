@@ -30,9 +30,13 @@ export interface AiResultRow {
   maxMarks: number | null;
   expectedReply: string | null;
   audioPath: string | null;
+  inputText: string | null;
   initiatedAt: string | null;   // ISO datetime
   receivedAt: string | null;    // ISO datetime
   status: 'PENDING' | 'SENT' | 'SUCCESS' | 'FAILED';
+  transcript: string | null;
+  feedback: string | null;
+  type: 'VERBAL' | 'SUBJECTIVE' | null;
 }
 
 export interface ResultRow {
@@ -47,12 +51,19 @@ export interface ResultRow {
   startedAt: string | null;  // ISO datetime
   createdAt: string;         // ISO datetime
   checked: boolean;
+  /** Tab-switch / focus-loss violations recorded during the exam. */
+  violations: number | null;
   /** MCQ score + Σ ai_score (SUCCESS verbal rows) — computed server-side. */
   totalScore: number;
   /** MCQ totalMarks + Σ maxMarks (all verbal questions) — computed server-side. */
   totalMaxMarks: number;
   /** Verbal AI evaluation records — one per verbal question in the exam. */
   aiResults: AiResultRow[];
+  /**
+   * Full per-question scoring details serialised as JSON string.
+   * Parse with JSON.parse() → McqDetailRow[]. Null for old submissions.
+   */
+  answersJson: string | null;
 }
 
 const authHeader = (creds: string) => ({
@@ -199,14 +210,21 @@ export const adminApi = {
     validForMinutes: number,
     validFromIso?: string,
     validUntilIso?: string,
+    liveStream = false,
   ): Promise<{ link: string; expiresAt: string; validFrom?: string | null }> {
     const res = await fetch(`${API_BASE}/exams/${id}/generate-link`, {
       method: 'POST',
       headers: authHeader(creds),
-      body: JSON.stringify({ userName, userEmail, validForMinutes, validFromIso, validUntilIso }),
+      body: JSON.stringify({ userName, userEmail, validForMinutes, validFromIso, validUntilIso, liveStream }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error ?? 'Failed to generate link');
     return data;
   },
+
+  /**
+   * Generates a Safe Exam Browser (.seb) config file for the candidate and
+   * triggers a browser download. The .seb file embeds the signed JWT invite
+   * link — the candidate just double-clicks it to open SEB and land on the exam.
+   */
 };

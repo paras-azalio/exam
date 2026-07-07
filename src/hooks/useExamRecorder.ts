@@ -276,5 +276,9 @@ export const useExamRecorder = (sessionKey: string | null) => {
     screenError,
     setCameraError,
     setScreenError,
+    // Exposed so the live-proctoring hook can add these exact streams' tracks to
+    // an RTCPeerConnection. They are refs (read .current) to avoid stale closures.
+    cameraStreamRef: cameraStream,
+    screenStreamRef: screenStream,
   };
 };

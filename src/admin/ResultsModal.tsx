@@ -1,6 +1,87 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { adminApi, AiResultRow, ExamRow, ResultRow } from './adminApi';
 import RecordingsModal from './RecordingsModal';
+import { BACKEND_URL } from '../config';
+import { generateExamReport } from './examReportGenerator';
+
+function fmt(s: number) {
+  if (!isFinite(s)) return '0:00';
+  const m = Math.floor(s / 60), sec = Math.floor(s % 60);
+  return `${m}:${String(sec).padStart(2, '0')}`;
+}
+
+/** Custom audio player with styled progress bar (played=dark, remaining=light). */
+function FixedAudio({ src, className }: { src: string; className?: string }) {
+  const audioRef  = useRef<HTMLAudioElement>(null);
+  const [playing, setPlaying]   = useState(false);
+  const [current, setCurrent]   = useState(0);
+  const [duration, setDuration] = useState(0);
+
+  const fixDuration = useCallback(() => {
+    const el = audioRef.current;
+    if (el && !isFinite(el.duration)) el.currentTime = 1e101;
+  }, []);
+
+  const onSeeked = useCallback(() => {
+    const el = audioRef.current;
+    if (el && isFinite(el.duration) && el.currentTime > el.duration - 0.1) {
+      el.currentTime = 0;
+    }
+  }, []);
+
+  const onTimeUpdate = useCallback(() => {
+    const el = audioRef.current;
+    if (!el) return;
+    setCurrent(el.currentTime);
+    if (isFinite(el.duration)) setDuration(el.duration);
+  }, []);
+
+  const togglePlay = () => {
+    const el = audioRef.current;
+    if (!el) return;
+    if (el.paused) { el.play(); setPlaying(true); }
+    else           { el.pause(); setPlaying(false); }
+  };
+
+  const seek = (e: React.MouseEvent<HTMLDivElement>) => {
+    const el = audioRef.current;
+    if (!el || !isFinite(el.duration)) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    el.currentTime = ((e.clientX - rect.left) / rect.width) * el.duration;
+  };
+
+  const pct = duration > 0 ? Math.min((current / duration) * 100, 100) : 0;
+
+  return (
+    <div className={`flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-full px-4 py-2 ${className ?? ''}`}>
+      <audio ref={audioRef}
+        src={src}
+        onLoadedMetadata={fixDuration}
+        onSeeked={onSeeked}
+        onTimeUpdate={onTimeUpdate}
+        onEnded={() => setPlaying(false)}
+      />
+
+      {/* Play/pause */}
+      <button onClick={togglePlay} className="w-7 h-7 flex items-center justify-center shrink-0 text-gray-700 hover:text-gray-900">
+        {playing
+          ? <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+          : <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5"><polygon points="5,3 19,12 5,21"/></svg>
+        }
+      </button>
+
+      {/* Time */}
+      <span className="text-xs tabular-nums text-gray-500 shrink-0">{fmt(current)}</span>
+
+      {/* Track */}
+      <div className="relative flex-1 h-1.5 rounded-full bg-gray-200 cursor-pointer" onClick={seek}>
+        <div className="absolute inset-y-0 left-0 rounded-full bg-gray-700" style={{ width: `${pct}%` }} />
+      </div>
+
+      <span className="text-xs tabular-nums text-gray-400 shrink-0">{fmt(duration)}</span>
+    </div>
+  );
+}
 
 /** Returns true when a verbal AI row is eligible for retry in the admin UI. */
 function isRetryEligible(ar: AiResultRow): boolean {
@@ -17,7 +98,7 @@ interface Props {
   onClose: () => void;
 }
 
-type SortKey = 'studentName' | 'studentEmail' | 'totalScore' | 'score' | 'verbalResult' | 'grade' | 'timeTaken' | 'createdAt';
+type SortKey = 'studentName' | 'studentEmail' | 'totalScore' | 'score' | 'verbalResult' |'subjectiveResult'| 'grade' | 'timeTaken' | 'createdAt';
 type SortDir = 'asc' | 'desc';
 
 /** Returns duration in seconds between startedAt and createdAt, or null. */
@@ -58,6 +139,39 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
   const [expandedVerbal, setExpandedVerbal] = useState<Set<number>>(new Set());
   const [retrying, setRetrying]             = useState<Set<number>>(new Set());
   const [verbalDetailPopup, setVerbalDetailPopup] = useState<AiResultRow | null>(null);
+  const [subjectiveDetailPopup, setSubjectiveDetailPopup] = useState<AiResultRow | null>(null);
+  const [expandedSubjective, setExpandedSubjective] = useState<Set<number>>(new Set());
+  const [audioObjectUrl, setAudioObjectUrl] = useState<string | null>(null);
+  const [audioLoading, setAudioLoading]     = useState(false);
+
+  const closeVerbalDetail = () => {
+    setVerbalDetailPopup(null);
+    setAudioObjectUrl(prev => { if (prev) URL.revokeObjectURL(prev); return null; });
+  };
+
+  // Fetch audio blob when the verbal detail popup opens; revoke on close.
+  useEffect(() => {
+    // Revoke previous blob URL to avoid memory leaks
+    if (audioObjectUrl) { URL.revokeObjectURL(audioObjectUrl); setAudioObjectUrl(null); }
+    if (!verbalDetailPopup?.audioPath) return;
+
+    const [sessionKey, ...rest] = verbalDetailPopup.audioPath.split('/');
+    const filePath = rest.join('/');
+    if (!sessionKey || !filePath) return;
+
+    setAudioLoading(true);
+    fetch(`${BACKEND_URL}/api/admin/recordings/file?sessionKey=${encodeURIComponent(sessionKey)}&filePath=${encodeURIComponent(filePath)}`, {
+      headers: { Authorization: `Basic ${btoa(creds)}` },
+    })
+      .then(r => r.ok ? r.blob() : Promise.reject(r.status))
+      .then(blob => { setAudioObjectUrl(URL.createObjectURL(blob)); })
+      .catch(() => { setAudioObjectUrl(null); })
+      .finally(() => setAudioLoading(false));
+
+    return () => {
+      // cleanup is handled at next open or component unmount
+    };
+  }, [verbalDetailPopup]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     adminApi.getResults(creds, exam.id)
@@ -110,7 +224,8 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
       case 'studentEmail': return row.studentEmail ?? '';
       case 'totalScore':   return row.totalScore;
       case 'score':        return row.score ?? -Infinity;
-      case 'verbalResult': return row.aiResults.reduce((s, ar) => s + (ar.aiScore ?? 0), 0) || -Infinity;
+      case 'verbalResult':    return (row.aiResults ?? []).filter(ar => ar.type !== 'SUBJECTIVE').reduce((s, ar) => s + (ar.aiScore ?? 0), 0) || -Infinity;
+      case 'subjectiveResult': return (row.aiResults ?? []).filter(ar => ar.type === 'SUBJECTIVE').reduce((s, ar) => s + (ar.aiScore ?? 0), 0) || -Infinity;
       case 'grade':        return row.grade ?? '';
       case 'timeTaken':    return timeTakenSeconds(row) ?? -1;
       case 'createdAt':    return row.createdAt ?? '';
@@ -138,7 +253,7 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
     return <span className="text-slate-600 ml-1">{sortDir === 'asc' ? '↑' : '↓'}</span>;
   };
 
-  const thClass = (col: SortKey) =>
+  const thClass = (_col: SortKey) =>
     `px-3 py-2.5 text-left text-xs font-semibold text-gray-600 cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap`;
 
   return (
@@ -157,7 +272,18 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
               )}
             </p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+          <div className="flex items-center gap-3">
+            {!loading && !error && rows.length > 0 && (
+              <button
+                onClick={() => generateExamReport(exam, rows)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg transition"
+                title="Download full HTML report"
+              >
+                ⬇ Download Report
+              </button>
+            )}
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+          </div>
         </div>
 
         {/* Body */}
@@ -193,11 +319,17 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
                   <th className={thClass('verbalResult')} onClick={() => toggleSort('verbalResult')}>
                     Verbal <SortIcon col="verbalResult" />
                   </th>
+                   <th className={thClass('subjectiveResult')} onClick={() => toggleSort('subjectiveResult')}>
+                    Subjective <SortIcon col="subjectiveResult" />
+                  </th>
                   <th className={thClass('grade')} onClick={() => toggleSort('grade')}>
                     Grade <SortIcon col="grade" />
                   </th>
                   <th className={thClass('timeTaken')} onClick={() => toggleSort('timeTaken')}>
                     Total Time Taken <SortIcon col="timeTaken" />
+                  </th>
+                  <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 whitespace-nowrap">
+                    Violations
                   </th>
                   <th className={thClass('createdAt')} onClick={() => toggleSort('createdAt')}>
                     Submitted At<SortIcon col="createdAt" />
@@ -212,11 +344,18 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
                     ? Math.round((row.score / row.totalMarks) * 100)
                     : null;
                   const aiResults      = row.aiResults ?? [];
-                  const verbalCount    = aiResults.length;
+                  const verbalResults     = aiResults.filter(ar => ar.type !== 'SUBJECTIVE');
+                  const subjectiveResults = aiResults.filter(ar => ar.type === 'SUBJECTIVE');
+                  const verbalCount    = verbalResults.length;
+                  const subjectiveCount   = subjectiveResults.length;
                   const isVerbalExp    = expandedVerbal.has(row.id);
-                  const verbalScore    = aiResults.reduce((s, ar) => s + (ar.aiScore ?? 0), 0);
-                  const verbalTotalMax = aiResults.reduce((s, ar) => s + (ar.maxMarks ?? 0), 0);
+                  const isSubjectiveExp   = expandedSubjective.has(row.id);
+                  const verbalScore    = verbalResults.reduce((s, ar) => s + (ar.aiScore ?? 0), 0);
+                  const verbalTotalMax = verbalResults.reduce((s, ar) => s + (ar.maxMarks ?? 0), 0);
                   const verbalAllDone  = verbalCount > 0 && aiResults.every(ar => ar.status === 'SUCCESS');
+                  const subjectiveScore   = subjectiveResults.reduce((s, ar) => s + (ar.aiScore ?? 0), 0);
+                  const subjectiveTotalMax = subjectiveResults.reduce((s, ar) => s + (ar.maxMarks ?? 0), 0);
+                  const subjectiveAllDone = subjectiveCount > 0 && subjectiveResults.every(ar => ar.status === 'SUCCESS');
                   // totalScore and totalMaxMarks come pre-computed from the server
                   const totalMax  = row.totalMaxMarks;
                   const totalPct  = totalMax > 0
@@ -256,14 +395,18 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
                         <div className="flex flex-col gap-0.5">
                           <div className="flex items-baseline gap-1">
                             <span className="font-bold text-sm text-white bg-slate-700 px-2 py-0.5 rounded">
-                              {row.totalScore.toFixed(2)}
+                              {(row.totalScore ?? row.score ?? 0).toFixed(2)}
                             </span>
                             {totalMax > 0 && (
                               <span className="text-gray-500 text-xs">/ {totalMax}</span>
                             )}
                           </div>
                           {totalPct !== null && (
-                            <span className={`text-xs font-medium ${totalPct >= 60 ? 'text-green-600' : 'text-red-500'}`}>
+                            <span className={`text-xs font-medium ${
+                              row.grade?.toUpperCase() === 'F' ? 'text-red-500'
+                              : row.grade?.toUpperCase() === 'P' ? 'text-green-600'
+                              : 'text-gray-500'
+                            }`}>
                               {totalPct}%
                             </span>
                           )}
@@ -279,28 +422,36 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
                           </span>
                         ) : '—'}
                         {pct !== null && (
-                          <span className={`ml-2 text-xs font-medium ${pct >= 60 ? 'text-green-600' : 'text-red-500'}`}>
+                          <span className={`ml-2 text-xs font-medium ${
+                            row.grade?.toUpperCase() === 'F' ? 'text-red-500'
+                            : row.grade?.toUpperCase() === 'P' ? 'text-green-600'
+                            : 'text-gray-500'
+                          }`}>
                             ({pct}%)
                           </span>
                         )}
                       </td>
                       {/* Verbal score cell */}
-                      <td className="px-3 py-3">
+                     <td className="px-3 py-3">
                         {verbalCount === 0 ? (
                           <span className="text-xs text-gray-300">—</span>
                         ) : (
                           <button
-                            onClick={() => setExpandedVerbal(prev => {
+                            onClick={() => {
+                              setExpandedSubjective(prev => {const next=new Set(prev); next.delete(row.id);return next;});
+                              setSubjectiveDetailPopup(null);
+                              setExpandedVerbal(prev => {
                               const next = new Set(prev);
                               if (next.has(row.id)) next.delete(row.id); else next.add(row.id);
                               return next;
-                            })}
+                            });
+                          }}
                             className="flex items-center gap-1 text-orange-700 font-semibold hover:underline text-xs"
                             title="Expand verbal question details"
                           >
                             {verbalAllDone
                               ? verbalScore.toFixed(2)
-                              : aiResults.some(ar => ar.status === 'SUCCESS')
+                              : verbalResults.some(ar => ar.status === 'SUCCESS')
                                 ? `${verbalScore.toFixed(2)}…`
                                 : <span className="text-gray-400 font-normal italic">Pending</span>}
                             {verbalTotalMax > 0 && (
@@ -311,6 +462,39 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
                           </button>
                         )}
                       </td>
+                      {/* Subjective score cell */}
+                      <td className="px-3 py-3">
+                        {subjectiveCount === 0 ? (
+                          <span className="text-xs text-gray-300">—</span>
+                        ) : (
+                          <button
+                            onClick={() =>{
+                             setExpandedVerbal(prev => {const next=new Set(prev);next.delete(row.id);return next;});
+                             closeVerbalDetail();
+                             setExpandedSubjective(prev=>{
+                             const next=new Set(prev);
+                              if (next.has(row.id)) next.delete(row.id); else next.add(row.id);
+                              return next;
+                            });
+                            }}
+                            className="flex items-center gap-1 text-blue-700 font-semibold hover:underline text-xs"
+                            title="Expand subjective question details"
+                          >
+                            {subjectiveAllDone
+                              ? subjectiveScore.toFixed(2)
+                              : subjectiveResults.some(ar => ar.status === 'SUCCESS')
+                                ? `${subjectiveScore.toFixed(2)}…`
+                                : <span className="text-gray-400 font-normal italic">Pending</span>}
+                            {subjectiveTotalMax > 0 && (
+                              <span className="text-blue-500 font-normal">/ {subjectiveTotalMax}</span>
+                            )}
+                            <span className="text-blue-400 font-normal ml-0.5">({subjectiveCount}Q)</span>
+                            <span className="text-gray-400">{isSubjectiveExp ? '▾' : '▸'}</span>
+                          </button>
+                        )}
+                      </td>
+
+                      
                       <td className="px-3 py-3">
                         {row.grade ? (
                           <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-xs font-bold">
@@ -321,27 +505,39 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
                       <td className="px-3 py-3 text-gray-600 font-mono text-xs">
                         {formatDuration(tt)}
                       </td>
+                      <td className="px-3 py-3 text-center">
+                        {row.violations != null ? (
+                          <span className={`text-xs font-semibold px-2 py-0.5 rounded ${
+                            row.violations === 0
+                              ? 'bg-green-50 text-green-600'
+                              : row.violations <= 2
+                              ? 'bg-yellow-50 text-yellow-700'
+                              : 'bg-red-50 text-red-600'
+                          }`}>
+                            {row.violations}
+                          </span>
+                        ) : <span className="text-gray-300 text-xs">—</span>}
+                      </td>
                       <td className="px-3 py-3 text-gray-500 text-xs">
                         {formatDate(row.createdAt)}
                       </td>
                     </tr>
                     {/* Expanded verbal question breakdown — horizontal scrollable cards */}
-                    {isVerbalExp && verbalCount > 0 && (
-                      <tr key={`verbal-${row.id}`} className="bg-orange-50 border-t border-orange-100">
-                        <td colSpan={10} className="px-6 py-4">
-                          <p className="text-xs font-semibold text-orange-700 mb-3 text-center tracking-wide uppercase">
-                            Verbal Question Scores
+                    {isSubjectiveExp && subjectiveCount > 0 && (
+                      <tr key={`subjective-${row.id}`} className="bg-blue-50 border-t border-blue-100">
+                        <td colSpan={12} className="px-6 py-4">
+                          <p className="text-xs font-semibold text-blue-700 mb-3 text-center tracking-wide uppercase">
+                            Subjective Question Scores
                           </p>
                           <div className="flex gap-3 overflow-x-auto pb-1 justify-center">
-                            {aiResults.map(ar => {
+                            {subjectiveResults.map(ar => {
                               const eligible = isRetryEligible(ar);
                               const isRetrying = retrying.has(ar.id);
-                              // Status colours
                               const statusCfg = {
-                                SUCCESS: { border: 'border-orange-200', badge: 'bg-green-100 text-green-700',  label: 'Scored' },
-                                FAILED:  { border: 'border-red-200',    badge: 'bg-red-100 text-red-600',     label: 'Failed' },
-                                SENT:    { border: 'border-yellow-200', badge: 'bg-yellow-100 text-yellow-700', label: 'Evaluating…' },
-                                PENDING: { border: 'border-gray-200',   badge: 'bg-gray-100 text-gray-500',   label: 'Pending' },
+                                SUCCESS: { border: 'border-blue-200',   badge: 'bg-green-100 text-green-700',    label: 'Scored' },
+                                FAILED:  { border: 'border-red-200',    badge: 'bg-red-100 text-red-600',        label: 'Failed' },
+                                SENT:    { border: 'border-yellow-200', badge: 'bg-yellow-100 text-yellow-700',  label: 'Evaluating…' },
+                                PENDING: { border: 'border-gray-200',   badge: 'bg-gray-100 text-gray-500',      label: 'Pending' },
                               }[ar.status] ?? { border: 'border-gray-200', badge: 'bg-gray-100 text-gray-500', label: ar.status };
 
                               return (
@@ -350,10 +546,9 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
                                   className={`flex-shrink-0 bg-white border ${statusCfg.border} rounded-xl overflow-hidden text-center`}
                                   style={{ minWidth: '150px' }}
                                 >
-                                  {/* Score */}
                                   <div className="px-4 py-3">
                                     {ar.status === 'SUCCESS' ? (
-                                      <p className="font-bold text-orange-700 text-base whitespace-nowrap">
+                                      <p className="font-bold text-blue-700 text-base whitespace-nowrap">
                                         {Number(ar.aiScore).toFixed(2)}
                                         {ar.maxMarks ? ` / ${ar.maxMarks}` : ''} pts
                                       </p>
@@ -369,12 +564,10 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
                                       {statusCfg.label}
                                     </span>
                                   </div>
-
-                                  {/* Actions */}
                                   <div className="border-t border-gray-100 py-1.5 flex items-center justify-center gap-2">
                                     <button
-                                      onClick={() => setVerbalDetailPopup(ar)}
-                                      className="text-[11px] text-orange-600 hover:text-orange-800 font-medium transition"
+                                      onClick={() => { closeVerbalDetail();setSubjectiveDetailPopup(ar)}}
+                                      className="text-[11px] text-blue-600 hover:text-blue-800 font-medium transition"
                                     >
                                       View ↗
                                     </button>
@@ -399,6 +592,111 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
                         </td>
                       </tr>
                     )}
+                    {isVerbalExp && verbalCount > 0 && (
+  <tr
+    key={`verbal-${row.id}`}
+    className="bg-orange-50 border-t border-orange-100"
+  >
+    <td colSpan={12} className="px-6 py-4">
+      <p className="text-xs font-semibold text-orange-700 mb-3 text-center tracking-wide uppercase">
+        Verbal Question Scores
+      </p>
+
+      <div className="flex gap-3 overflow-x-auto pb-1 justify-center">
+        {verbalResults.map((ar) => {
+          const eligible = isRetryEligible(ar);
+          const isRetrying = retrying.has(ar.id);
+
+          const statusCfg =
+            {
+              SUCCESS: {
+                border: "border-orange-200",
+                badge: "bg-green-100 text-green-700",
+                label: "Scored",
+              },
+              FAILED: {
+                border: "border-red-200",
+                badge: "bg-red-100 text-red-600",
+                label: "Failed",
+              },
+              SENT: {
+                border: "border-yellow-200",
+                badge: "bg-yellow-100 text-yellow-700",
+                label: "Evaluating…",
+              },
+              PENDING: {
+                border: "border-gray-200",
+                badge: "bg-gray-100 text-gray-500",
+                label: "Pending",
+              },
+            }[ar.status] ?? {
+              border: "border-gray-200",
+              badge: "bg-gray-100 text-gray-500",
+              label: ar.status,
+            };
+
+          return (
+            <div
+              key={ar.id}
+              className={`flex-shrink-0 bg-white border ${statusCfg.border} rounded-xl overflow-hidden text-center`}
+              style={{ minWidth: "150px" }}
+            >
+              <div className="px-4 py-3">
+                {ar.status === "SUCCESS" ? (
+                  <p className="font-bold text-orange-700 text-base whitespace-nowrap">
+                    {Number(ar.aiScore).toFixed(2)}
+                    {ar.maxMarks ? ` / ${ar.maxMarks}` : ""} pts
+                  </p>
+                ) : (
+                  <p className="text-gray-400 text-sm font-medium">
+                    — {ar.maxMarks ? `/ ${ar.maxMarks} pts` : ""}
+                  </p>
+                )}
+
+                {ar.precisionLevel != null && (
+                  <p className="text-gray-400 text-[11px] mt-0.5">
+                    Precision {ar.precisionLevel}
+                  </p>
+                )}
+
+                <span
+                  className={`inline-block mt-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full ${statusCfg.badge}`}
+                >
+                  {statusCfg.label}
+                </span>
+              </div>
+
+              <div className="border-t border-gray-100 py-1.5 flex items-center justify-center gap-2">
+                <button
+                  onClick={() => { setSubjectiveDetailPopup(null);setVerbalDetailPopup(ar)}}
+                  className="text-[11px] text-orange-600 hover:text-orange-800 font-medium transition"
+                >
+                  View ↗
+                </button>
+
+                {eligible && (
+                  <>
+                    <span className="text-gray-200">|</span>
+
+                    <button
+                      onClick={() => retryAiResult(ar.id)}
+                      disabled={isRetrying}
+                      className="text-[11px] text-red-500 hover:text-red-700 font-medium disabled:opacity-50 transition"
+                      title="Re-fire AI evaluation"
+                    >
+                      {isRetrying ? "..." : "↺ Retry"}
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </td>
+  </tr>
+)}
+                    
                     </React.Fragment>
                   );
                 })}
@@ -427,73 +725,210 @@ export default function ResultsModal({ creds, exam, onClose }: Props) {
           onClose={() => setRecordingsRow(null)}
         />
       )}
+        {/* Subjective question detail popup */}
+      {subjectiveDetailPopup && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-[60] p-4"
+          onClick={() => setSubjectiveDetailPopup(null)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <h4 className="font-bold text-gray-800 text-sm">Subjective Question Detail</h4>
+                {subjectiveDetailPopup.status === 'SUCCESS' && subjectiveDetailPopup.aiScore != null && (
+                  <span className="text-sm font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2.5 py-0.5 rounded-full">
+                    {Number(subjectiveDetailPopup.aiScore).toFixed(2)}
+                    {subjectiveDetailPopup.maxMarks != null && subjectiveDetailPopup.maxMarks > 0 && (
+                      <span className="text-gray-400 font-normal"> / {subjectiveDetailPopup.maxMarks}</span>
+                    )} pts
+                  </span>
+                )}
+                {subjectiveDetailPopup.precisionLevel != null && (
+                  <span className="text-xs bg-gray-100 text-gray-500 px-2.5 py-0.5 rounded-full">
+                    Precision {subjectiveDetailPopup.precisionLevel}
+                  </span>
+                )}
+              </div>
+              <button onClick={() => setSubjectiveDetailPopup(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none flex-shrink-0 ml-3">✕</button>
+            </div>
 
+            <div className="flex-1 overflow-y-auto divide-y divide-gray-100">
+              {subjectiveDetailPopup.status !== 'SUCCESS' && (
+                <div className="px-6 py-4 text-center">
+                  <p className="text-xl font-semibold text-gray-400">
+                    {subjectiveDetailPopup.status === 'FAILED' ? '⚠ Failed' :
+                     subjectiveDetailPopup.status === 'SENT'   ? '⏳ Evaluating…' : '⏳ Pending'}
+                    {subjectiveDetailPopup.maxMarks ? ` / ${subjectiveDetailPopup.maxMarks} pts` : ''}
+                  </p>
+                </div>
+              )}
+
+              <div className="px-6 py-4">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Question</p>
+                <p className="text-sm text-gray-700 leading-relaxed">{subjectiveDetailPopup.question}</p>
+              </div>
+
+              {subjectiveDetailPopup.expectedReply && (
+                <div className="px-6 py-4">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Expected Reply</p>
+                  <div className="text-xs text-gray-500 leading-relaxed space-y-1">
+                  {subjectiveDetailPopup.expectedReply.split('|||').map((r, i) => (
+                    <div key={i} className="flex gap-2">
+                      <span className="font-semibold text-gray-400">{i + 1}.</span>
+                      <span className="whitespace-pre-wrap">{r.trim()}</span>
+                    </div>
+                  ))}
+                </div>
+                </div>
+              )}
+
+              {/* Student's written answer */}
+              {(subjectiveDetailPopup.inputText|| subjectiveDetailPopup.audioPath)   && (
+                <div className="px-6 py-4 bg-gray-50">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Candidate Answer</p>
+                  <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-line">{subjectiveDetailPopup.inputText|| subjectiveDetailPopup.audioPath}</p>
+                </div>
+              )}
+
+              {subjectiveDetailPopup.feedback && (
+                <div className="px-6 py-4 bg-green-50">
+                  <p className="text-xs font-semibold text-green-600 uppercase tracking-wide mb-2">AI Feedback</p>
+                  <div className="flex gap-2">
+                    <span className="text-base mt-0.5 flex-shrink-0">💬</span>
+                    <p className="text-sm text-gray-700 leading-relaxed">{subjectiveDetailPopup.feedback}</p>
+                  </div>
+                </div>
+              )}
+
+              {(subjectiveDetailPopup.initiatedAt || subjectiveDetailPopup.receivedAt) && (
+                <div className="px-6 py-3 flex flex-wrap gap-4 text-xs text-gray-400">
+                  {subjectiveDetailPopup.initiatedAt && <span>Sent: {new Date(subjectiveDetailPopup.initiatedAt).toLocaleString()}</span>}
+                  {subjectiveDetailPopup.receivedAt  && <span>Received: {new Date(subjectiveDetailPopup.receivedAt).toLocaleString()}</span>}
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-3 border-t border-gray-100 flex justify-end flex-shrink-0">
+              <button
+                onClick={() => setSubjectiveDetailPopup(null)}
+                className="px-5 py-2 text-sm bg-slate-800 text-white rounded-lg hover:bg-slate-900 transition"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Verbal question detail popup */}
       {verbalDetailPopup && (
         <div
           className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-[60] p-4"
-          onClick={() => setVerbalDetailPopup(null)}
+          onClick={closeVerbalDetail}
         >
           <div
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-md"
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col"
             onClick={e => e.stopPropagation()}
           >
-            {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-              <h4 className="font-bold text-gray-800 text-sm">Verbal Question Detail</h4>
-              <button onClick={() => setVerbalDetailPopup(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
-            </div>
-
-            {/* Score */}
-            <div className="px-6 pt-5 pb-4 text-center border-b border-gray-100">
-              {verbalDetailPopup.status === 'SUCCESS' ? (
-                <>
-                  <p className="text-4xl font-bold text-orange-700">
+            {/* ── Fixed header ── */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <h4 className="font-bold text-gray-800 text-sm">Verbal Question Detail</h4>
+                {/* Score pill always visible in header */}
+                {verbalDetailPopup.status === 'SUCCESS' && verbalDetailPopup.aiScore != null && (
+                  <span className="text-sm font-bold text-orange-700 bg-orange-50 border border-orange-200 px-2.5 py-0.5 rounded-full">
                     {Number(verbalDetailPopup.aiScore).toFixed(2)}
                     {verbalDetailPopup.maxMarks != null && verbalDetailPopup.maxMarks > 0 && (
-                      <span className="text-2xl text-gray-400 font-normal"> / {verbalDetailPopup.maxMarks}</span>
-                    )}
-                  </p>
-                  <p className="text-sm text-gray-400 mt-1">pts</p>
-                </>
-              ) : (
-                <p className="text-2xl font-semibold text-gray-400">
-                  {verbalDetailPopup.status === 'FAILED' ? '⚠ Failed' :
-                   verbalDetailPopup.status === 'SENT'   ? '⏳ Evaluating…' : '⏳ Pending'}
-                  {verbalDetailPopup.maxMarks ? ` / ${verbalDetailPopup.maxMarks} pts` : ''}
-                </p>
-              )}
-              {verbalDetailPopup.precisionLevel != null && (
-                <span className="inline-block mt-2 text-xs bg-gray-100 text-gray-500 px-3 py-0.5 rounded-full">
-                  Precision {verbalDetailPopup.precisionLevel}
-                </span>
-              )}
-            </div>
-
-            {/* Question */}
-            <div className="px-6 py-4 border-b border-gray-100">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Question</p>
-              <p className="text-sm text-gray-700 leading-relaxed">{verbalDetailPopup.question}</p>
-            </div>
-
-            {/* Expected reply */}
-            {verbalDetailPopup.expectedReply && (
-              <div className="px-6 py-4 border-b border-gray-100">
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Expected Reply</p>
-                <p className="text-xs text-gray-500 leading-relaxed">{verbalDetailPopup.expectedReply}</p>
+                      <span className="text-gray-400 font-normal"> / {verbalDetailPopup.maxMarks}</span>
+                    )} pts
+                  </span>
+                )}
+                {verbalDetailPopup.precisionLevel != null && (
+                  <span className="text-xs bg-gray-100 text-gray-500 px-2.5 py-0.5 rounded-full">
+                    Precision {verbalDetailPopup.precisionLevel}
+                  </span>
+                )}
               </div>
-            )}
-
-            {/* Timestamps */}
-            <div className="px-6 py-3 border-b border-gray-100 flex justify-between text-xs text-gray-400">
-              {verbalDetailPopup.initiatedAt && <span>Sent: {new Date(verbalDetailPopup.initiatedAt).toLocaleString()}</span>}
-              {verbalDetailPopup.receivedAt  && <span>Received: {new Date(verbalDetailPopup.receivedAt).toLocaleString()}</span>}
+              <button onClick={closeVerbalDetail} className="text-gray-400 hover:text-gray-600 text-xl leading-none flex-shrink-0 ml-3">✕</button>
             </div>
 
-            {/* Footer */}
-            <div className="px-6 pb-5 pt-4 flex justify-end">
+            {/* ── Scrollable body ── */}
+            <div className="flex-1 overflow-y-auto divide-y divide-gray-100">
+
+              {/* Status (non-success only) */}
+              {verbalDetailPopup.status !== 'SUCCESS' && (
+                <div className="px-6 py-4 text-center">
+                  <p className="text-xl font-semibold text-gray-400">
+                    {verbalDetailPopup.status === 'FAILED' ? '⚠ Failed' :
+                     verbalDetailPopup.status === 'SENT'   ? '⏳ Evaluating…' : '⏳ Pending'}
+                    {verbalDetailPopup.maxMarks ? ` / ${verbalDetailPopup.maxMarks} pts` : ''}
+                  </p>
+                </div>
+              )}
+
+              {/* Question */}
+              <div className="px-6 py-4">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Question</p>
+                <p className="text-sm text-gray-700 leading-relaxed">{verbalDetailPopup.question}</p>
+              </div>
+
+              {/* Expected reply */}
+              {verbalDetailPopup.expectedReply && (
+                <div className="px-6 py-4">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Expected Reply</p>
+                  <p className="text-xs text-gray-500 leading-relaxed whitespace-pre-line">{verbalDetailPopup.expectedReply}</p>
+                </div>
+              )}
+
+              {/* Audio playback */}
+              {verbalDetailPopup.audioPath && (
+                <div className="px-6 py-4">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Recording</p>
+                  {audioLoading ? (
+                    <div className="text-xs text-gray-400 italic">Loading audio…</div>
+                  ) : audioObjectUrl ? (
+                    <FixedAudio src={audioObjectUrl} className="w-full h-10" />
+                  ) : (
+                    <div className="text-xs text-red-400 italic">Audio not available</div>
+                  )}
+                </div>
+              )}
+
+              {/* Transcript */}
+              {verbalDetailPopup.transcript && (
+                <div className="px-6 py-4 bg-amber-50">
+                  <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide mb-2">Transcript</p>
+                  <p className="text-sm text-gray-700 leading-relaxed italic whitespace-pre-line">{verbalDetailPopup.transcript}</p>
+                </div>
+              )}
+
+              {/* AI Feedback */}
+              {verbalDetailPopup.feedback && (
+                <div className="px-6 py-4 bg-green-50">
+                  <p className="text-xs font-semibold text-green-600 uppercase tracking-wide mb-2">AI Feedback</p>
+                  <div className="flex gap-2">
+                    <span className="text-base mt-0.5 flex-shrink-0">💬</span>
+                    <p className="text-sm text-gray-700 leading-relaxed">{verbalDetailPopup.feedback}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Timestamps */}
+              {(verbalDetailPopup.initiatedAt || verbalDetailPopup.receivedAt) && (
+                <div className="px-6 py-3 flex flex-wrap gap-4 text-xs text-gray-400">
+                  {verbalDetailPopup.initiatedAt && <span>Sent: {new Date(verbalDetailPopup.initiatedAt).toLocaleString()}</span>}
+                  {verbalDetailPopup.receivedAt  && <span>Received: {new Date(verbalDetailPopup.receivedAt).toLocaleString()}</span>}
+                </div>
+              )}
+
+            </div>
+
+            {/* ── Fixed footer ── */}
+            <div className="px-6 py-3 border-t border-gray-100 flex justify-end flex-shrink-0">
               <button
-                onClick={() => setVerbalDetailPopup(null)}
+                onClick={closeVerbalDetail}
                 className="px-5 py-2 text-sm bg-slate-800 text-white rounded-lg hover:bg-slate-900 transition"
               >
                 Close

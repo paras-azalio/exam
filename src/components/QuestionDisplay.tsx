@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Question, Answer } from '../types/exam';
 import { formatTime } from '../utils/examUtils';
+import fixWebmDuration from 'fix-webm-duration';
 
 interface QuestionDisplayProps {
   question: Question;
@@ -201,8 +202,11 @@ function VerbalRecorder({ question, hasRecording, onRecorded, onRecordingStarted
   const recordTimerRef    = useRef<ReturnType<typeof setInterval> | null>(null);
   // Ref mirror of playbackUrl so the unmount cleanup closure always sees current value
   const playbackUrlRef    = useRef<string | null>(null);
+  // Ref mirror of elapsed so the onstop closure always sees the final recorded duration
+  const elapsedRef        = useRef(0);
 
   useEffect(() => { playbackUrlRef.current = playbackUrl; }, [playbackUrl]);
+  useEffect(() => { elapsedRef.current = elapsed; }, [elapsed]);
 
   // ── Cleanup on unmount ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -248,13 +252,16 @@ function VerbalRecorder({ question, hasRecording, onRecorded, onRecordingStarted
 
       mr.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
       mr.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
-        const url  = URL.createObjectURL(blob);
-        if (playbackUrlRef.current) URL.revokeObjectURL(playbackUrlRef.current);
-        setPlaybackUrl(url);
-        setRecordState('done');
-        onRecorded(blob);
-        stream.getTracks().forEach(t => t.stop());
+        const rawBlob = new Blob(chunksRef.current, { type: 'audio/webm' });
+        const durationMs = elapsedRef.current * 1000;
+        fixWebmDuration(rawBlob, durationMs, (fixedBlob: Blob) => {
+          const url = URL.createObjectURL(fixedBlob);
+          if (playbackUrlRef.current) URL.revokeObjectURL(playbackUrlRef.current);
+          setPlaybackUrl(url);
+          setRecordState('done');
+          onRecorded(fixedBlob);
+          stream.getTracks().forEach(t => t.stop());
+        });
       };
 
       mr.start(1000);
@@ -370,6 +377,10 @@ function VerbalRecorder({ question, hasRecording, onRecorded, onRecordingStarted
             }`}>
               {formatTime(remaining)}
             </div>
+              <div className="flex justify-center mb-4">
+               <AudioVisualizer stream={streamRef.current} />
+            </div>
+
             <div className="w-full bg-gray-200 rounded-full h-2 mb-4">
               <div
                 className="bg-red-500 h-2 rounded-full transition-all"
@@ -420,3 +431,65 @@ function VerbalRecorder({ question, hasRecording, onRecorded, onRecordingStarted
     </div>
   );
 }
+interface AudioVisualizerProps {
+  stream: MediaStream | null;
+}
+
+const AudioVisualizer: React.FC<AudioVisualizerProps> = ({ stream }) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const animationRef = useRef<number>();
+  const audioCtxRef = useRef<AudioContext>();
+
+  useEffect(() => {
+    if (!stream || !canvasRef.current) return;
+
+    // Set up Web Audio API
+    const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    audioCtxRef.current = audioCtx;
+    
+    const analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256; 
+    
+    const source = audioCtx.createMediaStreamSource(stream);
+    source.connect(analyser);
+
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    const canvas = canvasRef.current;
+    const canvasCtx = canvas.getContext('2d')!;
+
+    const draw = () => {
+      animationRef.current = requestAnimationFrame(draw);
+      analyser.getByteFrequencyData(dataArray);
+
+      canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const barWidth = (canvas.width / bufferLength) * 2.5;
+      let x = 0;
+
+      for (let i = 0; i < bufferLength; i++) {
+        const barHeight = dataArray[i] / 2;
+        // Tailwind orange-500
+        canvasCtx.fillStyle = `rgb(249, 115, 22)`; 
+        canvasCtx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
+        x += barWidth + 1;
+      }
+    };
+
+    draw();
+
+    return () => {
+      if (animationRef.current) cancelAnimationFrame(animationRef.current);
+      if (audioCtxRef.current?.state !== 'closed') audioCtxRef.current?.close();
+    };
+  }, [stream]);
+
+  return (
+    <canvas 
+      ref={canvasRef} 
+      width={200} 
+      height={60} 
+      className="w-full max-w-[200px] h-[60px] bg-orange-100 rounded-lg"
+    />
+  );
+};
