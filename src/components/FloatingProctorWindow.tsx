@@ -15,16 +15,22 @@ interface Props {
  */
 export default function FloatingProctorWindow({ stream, videoActive, audioActive }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const [pos, setPos] = useState({ x: window.innerWidth - 260, y: 88 });
   const dragRef = useRef<{ dx: number; dy: number } | null>(null);
 
-  // Attach the live admin stream; replay if it changes across renegotiations.
+  // Attach the live admin stream to whichever element is currently mounted;
+  // replay if it changes across renegotiations.
   useEffect(() => {
     if (videoRef.current && videoRef.current.srcObject !== stream) {
       videoRef.current.srcObject = stream;
       if (stream) videoRef.current.play().catch(() => { /* autoplay may need a gesture */ });
     }
-  }, [stream]);
+    if (audioRef.current && audioRef.current.srcObject !== stream) {
+      audioRef.current.srcObject = stream;
+      if (stream) audioRef.current.play().catch(() => { /* autoplay may need a gesture */ });
+    }
+  }, [stream, videoActive, audioActive]);
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     dragRef.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y };
@@ -70,15 +76,29 @@ export default function FloatingProctorWindow({ stream, videoActive, audioActive
         )}
       </div>
 
-      {/* Video (kept mounted so audio plays even when video is off) */}
-      <div className={`relative bg-black ${videoActive ? 'h-[160px]' : 'h-0'}`}>
-        <video
-          ref={videoRef}
+    {/* Video — only rendered while camera is on; audio is handled separately below */}
+      {videoActive && (
+        <div className="relative bg-black h-[160px]">
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted={!videoActive}
+            className="w-full h-full object-cover"
+          />
+        </div>
+      )}
+
+      {/* Dedicated audio element — NEVER display:none, so it keeps playing
+          regardless of whether the video panel is shown. This is what actually
+          carries the proctor's voice when the camera is off. */}
+      {audioActive && (
+        <audio
+          ref={audioRef}
           autoPlay
-          playsInline
-          className={`w-full h-full object-cover ${videoActive ? '' : 'hidden'}`}
+          style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
         />
-      </div>
+      )}
 
       {/* Audio-only state */}
       {!videoActive && audioActive && (
