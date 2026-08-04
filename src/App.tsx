@@ -66,23 +66,28 @@ function CareersRedirectPage() {
               d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
           </svg>
         </div>
-        <h1 className="text-2xl font-bold text-gray-800 mb-2">Looking for a Job?</h1>
+        <h1 className="text-2xl font-bold text-gray-800 mb-2">Hang tight — loading your exam</h1>
         <p className="text-gray-500 text-sm leading-relaxed mb-6">
-          This page is only accessible via a personalised invite link sent by our team.
-          To apply for open positions at Azalio, please visit our careers page.
+          Please wait a moment while we get your test ready. This page opens only
+          through a personal invite link sent by our team.
         </p>
         <div className="flex flex-col items-center gap-2 mb-6">
           <div className="w-14 h-14 rounded-full border-4 border-blue-100 flex items-center justify-center">
             <span className="text-xl font-bold text-blue-600">{countdown}</span>
           </div>
-          <p className="text-xs text-gray-400">Redirecting in {countdown} second{countdown !== 1 ? 's' : ''}…</p>
+          <p className="text-xs text-gray-400">
+            If no exam loads, we&apos;ll take you to the Azalio careers page in {countdown} second{countdown !== 1 ? 's' : ''}…
+          </p>
         </div>
         <a
           href={CAREERS_URL}
           className="block w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-xl transition text-sm"
         >
-          Go to Careers Page Now
+          Visit the Azalio careers page
         </a>
+        <p className="text-xs text-gray-400 mt-3">
+          Explore open roles and job postings at Azalio — no rush, take a look after your exam.
+        </p>
       </div>
     </div>
   );
